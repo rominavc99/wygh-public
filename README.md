@@ -11,7 +11,7 @@ alguien sale un boletín especial con sus mejores momentos del año.
 Pensado para grupos chicos (~20 personas) y para correr en una
 computadora propia, sin servicios de pago.
 
-## Funcionalidades AAA
+## Funcionalidades
 
 - **Formulario diario** con cuatro flujos (llego a la hora normal, llego
   tarde, no llego, me quedé en casa), foto con descripción y "frase del
