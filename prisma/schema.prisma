@@ -1,0 +1,392 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+enum Role {
+  MEMBER
+  ADMIN
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String    @unique
+  // Apodo opcional que la propia persona puede definir. Si está puesto, es
+  // el que se muestra en el boletín en vez de `name` (ver src/lib/display-name.ts).
+  username      String?   @unique
+  email         String    @unique
+  emailVerified DateTime? // requerido por el adaptador de Prisma de Auth.js
+  role          Role      @default(MEMBER)
+  active        Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  // Fecha de nacimiento "YYYY-MM-DD", la pone cada quien en /perfil (o en
+  // el aviso de la página principal). Solo se usan mes y día: el día del
+  // cumpleaños sale un boletín especial por la mañana (ver BirthdayNewsletter).
+  birthday      String?
+  // true si la persona eligió "Prefiero no decirlo" en el aviso de la
+  // página principal — deja de mostrárselo, pero puede ponerla en /perfil.
+  birthdayPromptDismissed Boolean @default(false)
+
+  responses  Response[]
+  accounts   Account[]
+  sessions   Session[]
+  // Frases y fotos que este usuario contribuyó desde el formulario diario
+  // (ver Phrase.authorId / HeroPhoto.authorId).
+  phrases    Phrase[]
+  heroPhotos HeroPhoto[]
+  // Interacción sobre las respuestas de otros en /boletines (ver Reaction/Comment).
+  reactions  Reaction[]
+  comments   Comment[]
+  commentReactions CommentReaction[]
+  // Comunicados que este admin creó desde /admin/comunicaciones.
+  communications Communication[]
+  // Boletines de cumpleaños dedicados a esta persona.
+  birthdayNewsletters BirthdayNewsletter[]
+}
+
+// Reacción de un usuario a la respuesta de alguien en /boletines. `emoji`
+// guarda el emoji real (💖) o el texto ascii/kaomoji (¯\_(ツ)_/¯) — `kind`
+// solo es para poder agrupar/renderizar cada tipo por separado en la UI.
+// Un usuario puede reaccionar con varios emojis distintos a la misma
+// respuesta, pero solo una vez con cada uno (@@unique) — repetir el mismo
+// quita la reacción (toggle), ver src/app/boletines/actions.ts.
+model Reaction {
+  id         String   @id @default(cuid())
+  responseId String
+  response   Response @relation(fields: [responseId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  emoji      String
+  kind       String // "emoji" | "ascii"
+  createdAt  DateTime @default(now())
+
+  @@unique([responseId, userId, emoji])
+}
+
+// Comentario en el hilo de una respuesta en /boletines. Hilo plano (sin
+// respuestas anidadas) — todos los comentarios de una respuesta se listan
+// en orden cronológico.
+model Comment {
+  id         String   @id @default(cuid())
+  responseId String
+  response   Response @relation(fields: [responseId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  text       String
+  createdAt  DateTime @default(now())
+  reactions  CommentReaction[]
+}
+
+// Reacción a un comentario — mismo esquema y reglas que Reaction (varios
+// emojis por persona, uno de cada uno, repetir = quitar), pero aparte para
+// no mezclarlas con las de la respuesta (p. ej. el top 5 de cumpleaños
+// solo cuenta las de respuestas).
+model CommentReaction {
+  id        String   @id @default(cuid())
+  commentId String
+  comment   Comment  @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  emoji     String
+  kind      String // "emoji" | "ascii"
+  createdAt DateTime @default(now())
+
+  @@unique([commentId, userId, emoji])
+}
+
+// Foto y frase resueltas para un día concreto: se calculan una sola vez
+// (a mano por el admin, o automáticamente) y quedan fijas ahí, para que la
+// vista previa y el envío real siempre muestren lo mismo — ver
+// resolveHeroPhotoForDate/resolvePhraseForDate en src/lib/hero-photos.ts y
+// src/lib/phrases.ts. El admin puede fijarlas a mano o re-rolar la
+// automática desde /admin/boletin. Una vez que el boletín de ese día ya se
+// envió (NewsletterSend.contentHtml), esto deja de tener efecto: lo
+// enviado queda congelado para siempre, sin importar qué pase acá después.
+model DailyPick {
+  date            String     @id
+  heroPhotoId     String?
+  heroPhoto       HeroPhoto? @relation(fields: [heroPhotoId], references: [id], onDelete: SetNull)
+  // true si el admin la eligió a mano; false si quedó fija por resolución
+  // automática (primera vez o re-rolada) — ver /admin/boletin.
+  heroPhotoManual Boolean    @default(false)
+  phraseId        String?
+  phrase          Phrase?    @relation(fields: [phraseId], references: [id], onDelete: SetNull)
+}
+
+model Response {
+  id        String     @id @default(cuid())
+  userId    String
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date      String
+  reactions Reaction[]
+  comments  Comment[]
+
+  // Si mandó una frase para el catálogo ese día (ver src/lib/response-phrases.ts):
+  // el texto se guarda aquí para poder precargarlo al editar la respuesta, y
+  // phraseId apunta a la fila creada en Phrase (no es FK real, mismo patrón
+  // suelto que photoFilename con HeroPhoto) para actualizarla en vez de
+  // duplicarla si vuelve a guardar el mismo día.
+  phraseText String?
+  phraseId   String?
+
+  atHome Boolean
+  // "Voy a llegar más tarde" — solo tiene sentido cuando atHome = true.
+  // Habilita beforeHomePlan y quita la pregunta de goingOut (ver
+  // src/app/response-form.tsx).
+  arrivingLate   Boolean @default(false)
+  beforeHomePlan String? // "¿Qué harás antes de llegar a tu casa?" — requerido si arrivingLate
+  homePlan       String?
+  awayPlan       String?
+  // "Hoy me quedé en la casa" — solo tiene sentido cuando atHome = true.
+  // Cambia el label de homePlan (retrospectivo: "qué hiciste hoy") y
+  // habilita tonightPlan.
+  stayedHome    Boolean @default(false)
+  tonightPlan   String? // "¿Qué harás en la noche?" — requerido si stayedHome
+  food          String
+  // Solo se pregunta cuando se llega a la hora normal (ni arrivingLate ni
+  // stayedHome ni fuera de casa) — en los demás flujos queda en false.
+  goingOut      Boolean
+  goingOutWhere String?
+  note          String?
+
+  // Foto opcional del día. Si está puesta, photoDescription es obligatoria
+  // (se valida en response-schema.ts) y se refleja como HeroPhoto para
+  // entrar en la rotación de portada (ver src/lib/response-photos.ts).
+  photoFilename    String?
+  photoDescription String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, date])
+}
+
+model Settings {
+  id               Int     @id @default(1)
+  newsletterName   String  @default("De regreso a casa")
+  tagline          String  @default("Una nota diaria entre amigos")
+  // Saludo personalizado del boletín. Admite el marcador {nombre}, que se
+  // reemplaza por el nombre de cada destinatario al enviar.
+  greetingTemplate String  @default("Hola, {nombre}, esto es lo que estarán haciendo tus amigos el día de hoy:")
+  sendTime         String  @default("20:00")
+  autoSend         Boolean @default(true)
+  fromName         String  @default("De regreso a casa")
+  fromEmail        String  @default("")
+
+  // Recordatorio por correo 1 hora antes de sendTime, solo a quien no
+  // haya respondido todavía ese día.
+  reminderEnabled Boolean @default(true)
+
+  // Si está activo, una vez que ya se mandó el boletín del día nadie puede
+  // editar su respuesta de ese día (ver saveResponse en src/app/actions.ts
+  // y el aviso de solo-lectura en src/app/page.tsx).
+  lockResponsesAfterSend Boolean @default(true)
+
+  // Sección "hero" tipo portada de periódico, arriba de las respuestas del día.
+  heroEnabled   Boolean @default(false)
+  heroTitle     String  @default("")
+  heroParagraph String  @default("")
+  heroImageUrl  String  @default("")
+  heroLinkUrl   String  @default("")
+  heroLinkText  String  @default("Leer más")
+
+  // Frase del día que se muestra en la portada. Si está vacío, se elige
+  // una al azar entre las de Phrase (estable para esa fecha); si tiene un
+  // id, esa frase se usa siempre, sin importar el día.
+  selectedPhraseId String @default("")
+
+  // Boletín de cumpleaños (ver BirthdayNewsletter): sale a birthdaySendTime
+  // el día del cumpleaños de cada quien, además del boletín diario. Título,
+  // párrafo y título del top 5 admiten {nombre} (nombre a mostrar de quien
+  // cumple años) y {NOMBRE} (el mismo, en mayúsculas); el saludo, igual
+  // que el del diario, usa {nombre} = nombre de cada destinatario.
+  birthdayEnabled          Boolean @default(true)
+  birthdaySendTime         String  @default("09:00")
+  birthdayGreetingTemplate String  @default("Hola, {nombre}, hoy celebramos a alguien importante:")
+  birthdayHeroTitle        String  @default("FELIZ CUMPLEAÑOS {NOMBRE}. LOS IMPORTANTES TE DESEAN LO MEJOR")
+  birthdayHeroParagraph    String  @default("Hoy es el cumpleaños de {nombre}. Agradecemos todos los momentos contigo, y esperamos que te lo pases muy bien hoy (y siempre).")
+  birthdayTopTitle         String  @default("Top 5 momentos que tuviste al llegar a tu casa en este último año")
+}
+
+// Frases cortas para la portada del boletín (ver Settings.selectedPhraseId).
+// El admin puede darlas de alta a mano en /admin/frases (sin autor/fecha),
+// o pueden venir del formulario diario (ver src/lib/response-phrases.ts),
+// en cuyo caso quedan con date = el día en que se mandaron y su autor.
+model Phrase {
+  id        String   @id @default(cuid())
+  text       String
+  date       String? // "YYYY-MM-DD" opcional, día para el que se sugirió
+  authorId   String?
+  author     User?       @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  createdAt  DateTime    @default(now())
+  dailyPicks DailyPick[]
+}
+
+// Fotos disponibles en public/IMG para la portada del boletín. Si el admin
+// no fija Settings.heroImageUrl a mano, se usa una de acá: primero se busca
+// una con `date` igual al día del envío, si no hay, se elige una al azar
+// (pero estable para esa fecha, ver src/lib/hero-photos.ts). Las que suben
+// los usuarios desde el formulario diario (ver src/lib/response-photos.ts)
+// quedan con su autor y la fecha de esa respuesta ya puestos.
+model HeroPhoto {
+  id          String      @id @default(cuid())
+  filename    String      @unique // ruta relativa dentro de public/, ej. "IMG/foto.jpg"
+  description String?
+  date        String? // "YYYY-MM-DD" opcional, para programar la foto a un día fijo
+  authorId    String?
+  author      User?       @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  createdAt   DateTime    @default(now())
+  dailyPicks  DailyPick[]
+  birthdayNewsletters BirthdayNewsletter[]
+}
+
+// Recordatorio enviado 1 hora antes de Settings.sendTime a quien no había
+// respondido todavía. Único por fecha, igual que NewsletterSend, para no
+// mandarlo dos veces el mismo día.
+model ReminderSend {
+  id             String   @id @default(cuid())
+  date           String   @unique
+  sentAt         DateTime @default(now())
+  recipientCount Int
+}
+
+model NewsletterSend {
+  id             String   @id @default(cuid())
+  date           String   @unique
+  sentAt         DateTime @default(now())
+  recipientCount Int
+  responseCount  Int
+  status         String
+  error          String?
+
+  // Snapshot del contenido realmente enviado ese día (antes de personalizar
+  // el saludo por destinatario), para poder mostrarlo tal cual se ve en
+  // /admin/boletin y /boletines sin reconstruirlo con Settings actuales,
+  // que pueden haber cambiado desde entonces. Vacío en envíos previos a
+  // este campo — esos siguen reconstruyéndose en vivo (ver src/lib/newsletter.ts).
+  contentHtml      String @default("")
+  contentText      String @default("")
+  greetingTemplate String @default("")
+
+  // Snapshot de la portada (NewsletterHero en JSON) tal cual se mandó, para
+  // que la vista interactiva de /boletines no la reconstruya con los
+  // Ajustes actuales — si no, cambiar la portada para el día siguiente
+  // cambiaba también la de todos los boletines ya enviados. Vacío en envíos
+  // previos a este campo — esos la sacan de contentText/contentHtml (ver
+  // heroFromSnapshot en src/lib/newsletter.ts).
+  heroJson String @default("")
+
+  // El admin puede archivar un envío desde /admin/envios: deja de aparecer
+  // en /boletines para miembros (ver src/app/boletines/page.tsx), pero
+  // sigue visible/reenviable desde el panel admin.
+  archived Boolean @default(false)
+}
+
+// Boletín de cumpleaños: uno por persona y fecha, aparte del boletín diario
+// (NewsletterSend es único por fecha y ese día también sale el diario). La
+// fila nace al resolver la foto de portada (vista previa del admin o envío)
+// y hace de DailyPick de esta edición: la foto sale de las que subió quien
+// cumple años y queda fija para que la vista previa y el envío coincidan.
+// Al enviarse, sentAt y el snapshot (contentHtml/contentText/heroJson)
+// quedan congelados, igual que en NewsletterSend.
+model BirthdayNewsletter {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date   String // "YYYY-MM-DD", el día del cumpleaños en que sale
+
+  heroPhotoId     String?
+  heroPhoto       HeroPhoto? @relation(fields: [heroPhotoId], references: [id], onDelete: SetNull)
+  heroPhotoManual Boolean    @default(false)
+
+  // null hasta que se envía; luego "sent"/"partial"/"failed".
+  status         String?
+  sentAt         DateTime?
+  recipientCount Int       @default(0)
+  momentCount    Int       @default(0)
+  error          String?
+
+  contentHtml      String @default("")
+  contentText      String @default("")
+  greetingTemplate String @default("")
+  heroJson         String @default("")
+  // {"title": "...", "responseIds": [...]} del top 5 tal cual se envió,
+  // para que /boletines lo muestre congelado (mismas respuestas y título)
+  // pero con las tarjetas interactivas de siempre (reacciones/comentarios).
+  momentsJson      String @default("")
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, date])
+}
+
+// Correo suelto que el admin manda desde /admin/comunicaciones — distinto
+// del boletín diario: para avisos/actualizaciones puntuales del sistema,
+// no ligado a una fecha de respuestas. Puede mandarse de inmediato o
+// programarse para un momento futuro (worker.ts revisa cada minuto los
+// que ya llegaron a su scheduledAt, ver src/lib/send-communication.ts).
+model Communication {
+  id     String @id @default(cuid())
+  subject  String
+  bodyHtml String
+  bodyText String
+
+  // "all" = todos los usuarios activos; "selected" = solo los de
+  // recipientIds (ids de User en JSON, ej. '["id1","id2"]').
+  audience     String
+  recipientIds String @default("")
+
+  // "scheduled" hasta que el worker (o el envío inmediato) lo procesa;
+  // luego "sent"/"partial"/"failed", igual que NewsletterSend.
+  status         String    @default("scheduled")
+  scheduledAt    DateTime
+  sentAt         DateTime?
+  recipientCount Int       @default(0)
+  error          String?
+
+  createdById String
+  createdBy   User     @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+}
+
+// --- Auth.js (NextAuth v5) — modelos estándar del adaptador de Prisma ---
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
