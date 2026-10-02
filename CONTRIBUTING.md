@@ -17,19 +17,74 @@ comentarios, documentación y mensajes de commit); mantengámoslo así.
 
 ## Flujo
 
-1. Haz fork y crea una rama desde `main` (`feat/…`, `fix/…`).
-2. Haz tu cambio con commits chicos y descriptivos.
-3. Antes de abrir el PR, que pase todo esto (es lo mismo que corre el CI):
-   ```bash
-   npm run lint
-   npm run typecheck
-   npm run build
-   ```
-4. Abre el PR contra `main` explicando qué cambia, por qué y cómo lo
-   probaste (capturas si toca la interfaz o el correo).
+La rama `main` está protegida: nadie (ni quien mantiene el proyecto)
+puede subir cambios directo a ella. Todo entra por pull request, y solo
+se puede unir cuando el CI (el check `verificar`) pasa en verde. Se une
+con **Squash and merge**, así que cada PR queda como un solo commit en
+`main`; no te preocupes por limpiar tu historial.
 
-No hay tests automatizados todavía: la verificación es typecheck, lint,
-build y probarlo a mano. Si quieres agregar tests, ¡bienvenidos!
+### 1. Haz fork y clónalo (una sola vez)
+
+En GitHub, botón **Fork**. Luego:
+
+```bash
+git clone git@github.com:<tu-usuario>/wygh-public.git
+cd wygh-public
+git remote add upstream git@github.com:rominavc99/wygh-public.git
+```
+
+`origin` es tu fork; `upstream` es el repo original.
+
+### 2. Crea una rama desde `main` al día
+
+```bash
+git switch main
+git pull upstream main
+git switch -c fix/descripcion-corta      # o feat/…, docs/…
+```
+
+### 3. Haz tu cambio y verifícalo
+
+Commits chicos y descriptivos, en español. Antes de abrir el PR, que pase
+todo esto (es lo mismo que corre el CI):
+
+```bash
+npm run lint
+npm run typecheck
+npm run build
+```
+
+No hay tests automatizados todavía: además de lo anterior, pruébalo a
+mano (`npm run dev`, con `npm run seed:demo` para tener datos). Si
+quieres agregar tests, ¡bienvenidos!
+
+### 4. Sube la rama y abre el pull request
+
+```bash
+git push -u origin fix/descripcion-corta
+```
+
+GitHub te muestra un botón para abrir el PR contra `main` del repo
+original. Llena la plantilla: qué cambia, por qué y cómo lo probaste
+(capturas si toca la interfaz o el correo).
+
+### 5. Si te piden cambios
+
+Haz los commits en la misma rama y vuelve a hacer `git push`: el PR se
+actualiza solo. Si `main` avanzó mientras tanto y hay conflictos:
+
+```bash
+git fetch upstream
+git merge upstream/main     # resuelve los conflictos, commit y push
+```
+
+### Para la siguiente contribución
+
+```bash
+git switch main
+git pull upstream main
+git switch -c feat/otra-cosa
+```
 
 ## Convenciones
 
