@@ -48,8 +48,8 @@ Prisma 7 + SQLite · Auth.js v5 · Nodemailer · node-cron · sharp · Zod.
 Requisito: Node.js 24.
 
 ```bash
-git clone <url-de-este-repo>
-cd <carpeta>
+git clone https://github.com/rominavc99/wygh-public.git
+cd wygh-public
 npm install
 cp .env.example .env          # llena AUTH_SECRET y ADMIN_*; ver abajo
 npx prisma migrate deploy     # crea data/app.db
