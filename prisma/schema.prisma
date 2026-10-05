@@ -30,6 +30,9 @@ model User {
   // true si la persona eligió "Prefiero no decirlo" en el aviso de la
   // página principal — deja de mostrárselo, pero puede ponerla en /perfil.
   birthdayPromptDismissed Boolean @default(false)
+  // Emoji que sale junto al "Hola, {nombre}" de la página principal. Lo
+  // elige cada quien en /perfil; null = el de siempre (🐧, ver DEFAULT_GREETING_EMOJI).
+  greetingEmoji String?
 
   responses  Response[]
   accounts   Account[]

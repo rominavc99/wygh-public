@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth-guards";
-import { usernameSchema, birthdaySchema } from "@/lib/user-schema";
+import { usernameSchema, birthdaySchema, greetingEmojiSchema } from "@/lib/user-schema";
 
 export type UsernameFormState =
   | { status: "idle" }
@@ -61,6 +61,30 @@ export async function updateMyBirthday(
   revalidatePath("/perfil");
   revalidatePath("/");
   revalidatePath("/admin/cumpleanos");
+  return { status: "success" };
+}
+
+export type GreetingEmojiFormState =
+  | { status: "idle" }
+  | { status: "success" }
+  | { status: "error"; message?: string };
+
+/** Guarda el emoji del saludo de la página principal (vacío = volver al de siempre). */
+export async function updateMyGreetingEmoji(
+  _prevState: GreetingEmojiFormState,
+  formData: FormData
+): Promise<GreetingEmojiFormState> {
+  const user = await requireUser();
+
+  const parsed = greetingEmojiSchema.safeParse(formData.get("greetingEmoji") ?? "");
+  if (!parsed.success) {
+    return { status: "error", message: parsed.error.issues[0]?.message ?? "Emoji inválido." };
+  }
+
+  await prisma.user.update({ where: { id: user.id }, data: { greetingEmoji: parsed.data } });
+
+  revalidatePath("/perfil");
+  revalidatePath("/");
   return { status: "success" };
 }
 
