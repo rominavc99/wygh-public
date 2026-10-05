@@ -6,36 +6,51 @@ import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth-guards";
 import { usernameSchema, birthdaySchema, greetingEmojiSchema } from "@/lib/user-schema";
 
-export type UsernameFormState =
+export type ProfileField = "username" | "birthday" | "greetingEmoji";
+
+export type ProfileFormState =
   | { status: "idle" }
   | { status: "success" }
-  | { status: "error"; message?: string };
+  | { status: "error"; errors: Partial<Record<ProfileField, string>> };
 
-export async function updateMyUsername(
-  _prevState: UsernameFormState,
+/** Guarda de una vez todo lo editable de /perfil: nombre de usuario, cumpleaños y emoji del saludo. */
+export async function updateMyProfile(
+  _prevState: ProfileFormState,
   formData: FormData
-): Promise<UsernameFormState> {
+): Promise<ProfileFormState> {
   const user = await requireUser();
 
-  const parsed = usernameSchema.safeParse(formData.get("username") ?? "");
-  if (!parsed.success) {
-    return { status: "error", message: parsed.error.issues[0]?.message ?? "Usuario inválido." };
+  const username = usernameSchema.safeParse(formData.get("username") ?? "");
+  const birthday = birthdaySchema.safeParse(formData.get("birthday") ?? "");
+  const greetingEmoji = greetingEmojiSchema.safeParse(formData.get("greetingEmoji") ?? "");
+
+  const errors: Partial<Record<ProfileField, string>> = {};
+  if (!username.success) errors.username = username.error.issues[0]?.message ?? "Usuario inválido.";
+  if (!birthday.success) errors.birthday = birthday.error.issues[0]?.message ?? "Fecha inválida.";
+  if (!greetingEmoji.success) errors.greetingEmoji = greetingEmoji.error.issues[0]?.message ?? "Emoji inválido.";
+  if (!username.success || !birthday.success || !greetingEmoji.success) {
+    return { status: "error", errors };
   }
 
   try {
-    await prisma.user.update({ where: { id: user.id }, data: { username: parsed.data } });
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { username: username.data, birthday: birthday.data, greetingEmoji: greetingEmoji.data },
+    });
   } catch (error) {
     if (
       error instanceof Prisma.PrismaClientKnownRequestError &&
       error.code === "P2002" &&
       ((error.meta as { target?: string[] } | undefined)?.target ?? []).includes("username")
     ) {
-      return { status: "error", message: "Ya alguien más tiene ese nombre de usuario." };
+      return { status: "error", errors: { username: "Ya alguien más tiene ese nombre de usuario." } };
     }
     throw error;
   }
 
   revalidatePath("/perfil");
+  revalidatePath("/");
+  revalidatePath("/admin/cumpleanos");
   return { status: "success" };
 }
 
@@ -44,7 +59,7 @@ export type BirthdayFormState =
   | { status: "success" }
   | { status: "error"; message?: string };
 
-/** Guarda (o borra, si viene vacía) la fecha de nacimiento propia. La usan /perfil y el aviso de la página principal. */
+/** Guarda (o borra, si viene vacía) la fecha de nacimiento propia, desde el aviso de la página principal. */
 export async function updateMyBirthday(
   _prevState: BirthdayFormState,
   formData: FormData
@@ -61,30 +76,6 @@ export async function updateMyBirthday(
   revalidatePath("/perfil");
   revalidatePath("/");
   revalidatePath("/admin/cumpleanos");
-  return { status: "success" };
-}
-
-export type GreetingEmojiFormState =
-  | { status: "idle" }
-  | { status: "success" }
-  | { status: "error"; message?: string };
-
-/** Guarda el emoji del saludo de la página principal (vacío = volver al de siempre). */
-export async function updateMyGreetingEmoji(
-  _prevState: GreetingEmojiFormState,
-  formData: FormData
-): Promise<GreetingEmojiFormState> {
-  const user = await requireUser();
-
-  const parsed = greetingEmojiSchema.safeParse(formData.get("greetingEmoji") ?? "");
-  if (!parsed.success) {
-    return { status: "error", message: parsed.error.issues[0]?.message ?? "Emoji inválido." };
-  }
-
-  await prisma.user.update({ where: { id: user.id }, data: { greetingEmoji: parsed.data } });
-
-  revalidatePath("/perfil");
-  revalidatePath("/");
   return { status: "success" };
 }
 
