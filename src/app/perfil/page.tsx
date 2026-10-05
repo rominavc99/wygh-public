@@ -2,9 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { UsernameForm } from "./username-form";
-import { BirthdayForm } from "./birthday-form";
-import { GreetingEmojiForm } from "./greeting-emoji-form";
+import { ProfileForm } from "./profile-form";
 
 export default async function PerfilPage() {
   const session = await auth();
@@ -60,13 +58,7 @@ export default async function PerfilPage() {
                 <label className="text-sm font-bold text-ink">Correo</label>
                 <p className="xp-input opacity-70">{user.email}</p>
               </div>
-              <UsernameForm username={user.username} />
-              <div className="border-t border-panel-edge pt-4">
-                <BirthdayForm birthday={user.birthday} />
-              </div>
-              <div className="border-t border-panel-edge pt-4">
-                <GreetingEmojiForm greetingEmoji={user.greetingEmoji} />
-              </div>
+              <ProfileForm username={user.username} birthday={user.birthday} greetingEmoji={user.greetingEmoji} />
             </div>
           </div>
         </div>

@@ -36,7 +36,7 @@ erDiagram
         boolean active "si es false, no puede iniciar sesión ni recibe correos"
         string birthday "YYYY-MM-DD, nullable, se edita en /perfil"
         boolean birthdayPromptDismissed "eligió no registrar su cumpleaños"
-        string greetingEmoji "emoji del saludo en la home, nullable, se edita en /perfil"
+        string greetingEmoji "emoji (o emoticón de ASCII_PICKER) del saludo en la home, nullable, se edita en /perfil"
         datetime createdAt
     }
 

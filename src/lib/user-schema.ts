@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ASCII_PICKER } from "@/lib/emoji-data";
 
 // Vacío = sin apodo (se usa `name`). Se recorta y normaliza a null si queda vacío.
 export const usernameSchema = z
@@ -32,15 +33,18 @@ export const birthdaySchema = z
 // Emoji del saludo de la página principal cuando la persona no eligió uno.
 export const DEFAULT_GREETING_EMOJI = "🐧";
 
-// Emoji del saludo ("Hola, {nombre} 🐧"). Vacío = el de siempre. Tiene que
-// ser un solo emoji (un grafema, aunque tenga varios code points como 👩‍💻).
+const ASCII_GREETINGS = new Set(ASCII_PICKER);
+
+// Emoji del saludo ("Hola, {nombre} 🐧"). Vacío = el de siempre. Vale un
+// solo emoji (un grafema, aunque tenga varios code points como 👩‍💻) o uno
+// de los emoticones de texto de las reacciones (ASCII_PICKER), tal cual.
 export const greetingEmojiSchema = z
   .string()
   .trim()
-  .max(32, "Elige un solo emoji.")
+  .max(64, "Elige un solo emoji o uno de los emoticones de la lista.")
   .refine((v) => {
-    if (v === "") return true;
+    if (v === "" || ASCII_GREETINGS.has(v)) return true;
     const graphemes = [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(v)];
     return graphemes.length === 1 && /\p{Extended_Pictographic}|\p{Regional_Indicator}/u.test(v);
-  }, "Elige un solo emoji.")
+  }, "Elige un solo emoji o uno de los emoticones de la lista.")
   .transform((v) => (v === "" ? null : v));
