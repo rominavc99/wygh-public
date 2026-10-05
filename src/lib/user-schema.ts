@@ -28,3 +28,19 @@ export const birthdaySchema = z
   }, "Fecha inválida.")
   .refine((v) => v === "" || (v >= "1900-01-01" && new Date(`${v}T00:00:00`) <= new Date()), "Revisa el año.")
   .transform((v) => (v === "" ? null : v));
+
+// Emoji del saludo de la página principal cuando la persona no eligió uno.
+export const DEFAULT_GREETING_EMOJI = "🐧";
+
+// Emoji del saludo ("Hola, {nombre} 🐧"). Vacío = el de siempre. Tiene que
+// ser un solo emoji (un grafema, aunque tenga varios code points como 👩‍💻).
+export const greetingEmojiSchema = z
+  .string()
+  .trim()
+  .max(32, "Elige un solo emoji.")
+  .refine((v) => {
+    if (v === "") return true;
+    const graphemes = [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(v)];
+    return graphemes.length === 1 && /\p{Extended_Pictographic}|\p{Regional_Indicator}/u.test(v);
+  }, "Elige un solo emoji.")
+  .transform((v) => (v === "" ? null : v));

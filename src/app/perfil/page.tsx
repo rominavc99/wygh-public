@@ -4,6 +4,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { UsernameForm } from "./username-form";
 import { BirthdayForm } from "./birthday-form";
+import { GreetingEmojiForm } from "./greeting-emoji-form";
 
 export default async function PerfilPage() {
   const session = await auth();
@@ -11,7 +12,7 @@ export default async function PerfilPage() {
 
   const user = await prisma.user.findUniqueOrThrow({
     where: { id: session.user.id },
-    select: { name: true, email: true, username: true, birthday: true },
+    select: { name: true, email: true, username: true, birthday: true, greetingEmoji: true },
   });
 
   return (
@@ -62,6 +63,9 @@ export default async function PerfilPage() {
               <UsernameForm username={user.username} />
               <div className="border-t border-panel-edge pt-4">
                 <BirthdayForm birthday={user.birthday} />
+              </div>
+              <div className="border-t border-panel-edge pt-4">
+                <GreetingEmojiForm greetingEmoji={user.greetingEmoji} />
               </div>
             </div>
           </div>

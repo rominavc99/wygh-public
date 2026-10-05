@@ -6,6 +6,7 @@ import { todayLocalDate, formatLocalDate } from "@/lib/date";
 import { ResponseForm } from "./response-form";
 import { SignOutButton } from "./sign-out-button";
 import { BirthdayPrompt } from "./birthday-prompt";
+import { DEFAULT_GREETING_EMOJI } from "@/lib/user-schema";
 
 export default async function HomePage() {
   const session = await auth();
@@ -18,7 +19,7 @@ export default async function HomePage() {
     prisma.newsletterSend.findUnique({ where: { date } }),
     prisma.user.findUnique({
       where: { id: session.user.id },
-      select: { birthday: true, birthdayPromptDismissed: true },
+      select: { birthday: true, birthdayPromptDismissed: true, greetingEmoji: true },
     }),
   ]);
   const locked = settings.lockResponsesAfterSend && Boolean(todaysSend);
@@ -31,7 +32,7 @@ export default async function HomePage() {
             {formatLocalDate(date)}
           </p>
           <h1 className="text-2xl font-bold text-ink drop-shadow-[0_1px_2px_rgba(255,255,255,.6)]">
-            Hola, {session.user.name} 🐧
+            Hola, {session.user.name} {me?.greetingEmoji ?? DEFAULT_GREETING_EMOJI}
           </h1>
         </div>
 
