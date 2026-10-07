@@ -7,6 +7,7 @@ import {
   FONT_DISPLAY,
   FONT_BODY,
 } from "@/lib/email-theme";
+import { getSiteUrl } from "@/lib/site-url";
 
 export function reminderEmailHtml({
   name,
@@ -22,6 +23,7 @@ export function reminderEmailHtml({
   const safeName = escapeHtml(name);
   const safeTitle = escapeHtml(newsletterName);
   const safeTime = escapeHtml(sendTime);
+  const safeSiteUrl = escapeHtml(getSiteUrl());
   const l = emailPalette;
   return `<!DOCTYPE html>
 <html lang="es">
@@ -51,6 +53,11 @@ export function reminderEmailHtml({
                 </tr>
               </table>
               <p class="text-faint" style="margin:22px 0 0;color:${l.faint};font-size:12px;line-height:1.5;">Si ya respondiste, ignora este correo. MSN status: 🟡 ausente</p>
+            </td>
+          </tr>
+          <tr>
+            <td class="text-faint" style="padding:12px 26px 20px;text-align:center;border-top:1px solid ${l.faint};">
+              <a href="${safeSiteUrl}" class="text-faint" style="color:${l.faint};font-size:11px;text-decoration:none;">Haz clic aquí para acceder al sitio</a>
             </td>
           </tr>
         </table>
