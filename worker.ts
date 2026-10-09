@@ -6,6 +6,8 @@ import { sendReminderIfNeeded } from "@/lib/send-reminder";
 import { sendBirthdayNewsletter, birthdayPeopleOn } from "@/lib/send-birthday";
 import { sendCommunicationNow } from "@/lib/send-communication";
 import { notifyAdminsOfScheduledResult } from "@/lib/notify-admins";
+import { sendWeeklySummary, sendInactivityNudges } from "@/lib/send-engagement";
+import { sendDailyExtras } from "@/lib/send-extras";
 import { todayLocalDate, nowLocalTime, subtractMinutesFromTime } from "@/lib/date";
 
 async function checkAndSend() {
@@ -87,6 +89,41 @@ async function checkAndSendScheduledCommunications() {
   }
 }
 
+async function checkAndSendWeeklySummary() {
+  const settings = await prisma.settings.upsert({ where: { id: 1 }, create: { id: 1 }, update: {} });
+
+  if (!settings.weeklySummaryEnabled) return;
+  if (new Date().getDay() !== settings.weeklySummaryDay) return;
+  if (nowLocalTime() !== settings.weeklySummaryTime) return;
+
+  const result = await sendWeeklySummary(todayLocalDate());
+  console.log(`[worker] Resumen semanal: ${result.status} — ${result.recipientCount} destinatarios.`);
+}
+
+async function checkAndSendInactivityNudges() {
+  const settings = await prisma.settings.upsert({ where: { id: 1 }, create: { id: 1 }, update: {} });
+
+  if (!settings.inactivityNudgeEnabled) return;
+  if (nowLocalTime() !== settings.inactivityNudgeTime) return;
+
+  const result = await sendInactivityNudges(todayLocalDate());
+  if (result.sent || result.failed) {
+    console.log(`[worker] Correos de inactividad: ${result.sent} enviados, ${result.failed} fallidos.`);
+  }
+}
+
+async function checkAndSendExtras() {
+  const settings = await prisma.settings.upsert({ where: { id: 1 }, create: { id: 1 }, update: {} });
+
+  if (nowLocalTime() !== settings.extrasEmailTime) return;
+
+  const result = await sendDailyExtras(todayLocalDate());
+  const summary = Object.entries(result)
+    .filter(([, count]) => count > 0)
+    .map(([kind, count]) => `${count} de ${kind}`);
+  if (summary.length) console.log(`[worker] Correos especiales: ${summary.join(", ")}.`);
+}
+
 cron.schedule("* * * * *", () => {
   checkAndSend().catch((error) => {
     console.error("[worker] Error en el chequeo del cron:", error);
@@ -100,6 +137,15 @@ cron.schedule("* * * * *", () => {
   checkAndSendScheduledCommunications().catch((error) => {
     console.error("[worker] Error al mandar comunicaciones programadas:", error);
   });
+  checkAndSendWeeklySummary().catch((error) => {
+    console.error("[worker] Error al mandar el resumen semanal:", error);
+  });
+  checkAndSendInactivityNudges().catch((error) => {
+    console.error("[worker] Error al mandar correos de inactividad:", error);
+  });
+  checkAndSendExtras().catch((error) => {
+    console.error("[worker] Error al mandar correos especiales:", error);
+  });
 });
 
-console.log("[worker] Worker de boletín iniciado. Revisando cada minuto la hora de envío, de recordatorio y de cumpleaños.");
+console.log("[worker] Worker de boletín iniciado. Revisando cada minuto la hora de envío, de recordatorio, de cumpleaños, del resumen semanal, de los correos de inactividad y de los especiales.");

@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/auth-guards";
+import { todayLocalDate } from "@/lib/date";
+import { MANUAL_EMAIL_KINDS, sendManualEmail, type ManualEmailKind } from "@/lib/send-now";
 
 const optionalUrl = z
   .string()
@@ -33,6 +35,20 @@ const settingsSchema = z
     heroImageUrl: optionalUrl,
     heroLinkUrl: optionalUrl,
     heroLinkText: z.string().trim().max(40).or(z.literal("")),
+    weeklySummaryEnabled: z.boolean(),
+    weeklySummaryDay: z.coerce.number().int().min(0).max(6),
+    weeklySummaryTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Usa el formato HH:MM."),
+    inactivityNudgeEnabled: z.boolean(),
+    inactivityNudgeDays: z.coerce.number().int("Escribe un número entero.").min(1, "Mínimo 1 día.").max(60, "Máximo 60 días."),
+    inactivityNudgeTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Usa el formato HH:MM."),
+    inactivityNudgeSubject: z.string().trim().min(1, "Escribe un título.").max(150),
+    inactivityNudgeTemplate: z.string().trim().min(1, "Escribe el mensaje.").max(600),
+    extrasEmailTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Usa el formato HH:MM."),
+    streakEmailEnabled: z.boolean(),
+    onThisDayEnabled: z.boolean(),
+    anniversaryEnabled: z.boolean(),
+    wrappedEnabled: z.boolean(),
+    welcomeEmailEnabled: z.boolean(),
   })
   .refine((v) => !v.heroEnabled || v.heroTitle.length > 0, {
     message: "Si activas la portada, escribe un título.",
@@ -66,6 +82,20 @@ export async function updateSettings(
     heroImageUrl: formData.get("heroImageUrl"),
     heroLinkUrl: formData.get("heroLinkUrl"),
     heroLinkText: formData.get("heroLinkText"),
+    weeklySummaryEnabled: formData.get("weeklySummaryEnabled") === "on",
+    weeklySummaryDay: formData.get("weeklySummaryDay"),
+    weeklySummaryTime: formData.get("weeklySummaryTime"),
+    inactivityNudgeEnabled: formData.get("inactivityNudgeEnabled") === "on",
+    inactivityNudgeDays: formData.get("inactivityNudgeDays"),
+    inactivityNudgeTime: formData.get("inactivityNudgeTime"),
+    inactivityNudgeSubject: formData.get("inactivityNudgeSubject"),
+    inactivityNudgeTemplate: formData.get("inactivityNudgeTemplate"),
+    extrasEmailTime: formData.get("extrasEmailTime"),
+    streakEmailEnabled: formData.get("streakEmailEnabled") === "on",
+    onThisDayEnabled: formData.get("onThisDayEnabled") === "on",
+    anniversaryEnabled: formData.get("anniversaryEnabled") === "on",
+    wrappedEnabled: formData.get("wrappedEnabled") === "on",
+    welcomeEmailEnabled: formData.get("welcomeEmailEnabled") === "on",
   });
 
   if (!parsed.success) {
@@ -85,5 +115,26 @@ export async function updateSettings(
 
   revalidatePath("/admin/ajustes");
   revalidatePath("/admin/boletin");
+  revalidatePath("/admin/estadisticas");
   return { status: "success" };
+}
+
+export type SendNowState = { status: "idle" } | { status: "done"; message: string; ok: boolean };
+
+/** "Enviar ahora" de un correo; `kind` viene ligado desde el botón. No toca la programación. */
+export async function sendEmailNow(
+  kind: ManualEmailKind,
+  _prevState: SendNowState,
+  formData: FormData
+): Promise<SendNowState> {
+  await requireAdmin();
+  if (!MANUAL_EMAIL_KINDS.includes(kind)) return { status: "done", ok: false, message: "Correo desconocido." };
+
+  const userId = kind === "welcome" ? String(formData.get("welcomeUserId") ?? "") : undefined;
+  if (kind === "welcome" && !userId) return { status: "done", ok: false, message: "Elige a quién mandarle la bienvenida." };
+
+  const { total, sent } = await sendManualEmail(kind, todayLocalDate(), userId);
+  if (total === 0) return { status: "done", ok: false, message: "Hoy no le toca a nadie, no se mandó nada." };
+  if (sent === total) return { status: "done", ok: true, message: `✉️ Enviado a ${sent} ${sent === 1 ? "persona" : "personas"}.` };
+  return { status: "done", ok: false, message: `Se mandó a ${sent} de ${total}; revisa los logs del servidor.` };
 }

@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/auth-guards";
 import { userSchema } from "@/lib/user-schema";
 import { resetRateLimit, loginEmailRateKey } from "@/lib/rate-limit";
+import { sendWelcomeEmail } from "@/lib/send-extras";
 
 export type UserFormState =
   | { status: "idle" }
@@ -46,8 +47,9 @@ export async function createUser(
     return { status: "error", fieldErrors: fieldErrorsFromZod(parsed.error) };
   }
 
+  let createdId: string;
   try {
-    await prisma.user.create({ data: parsed.data });
+    createdId = (await prisma.user.create({ data: parsed.data })).id;
     // Si la persona intentó entrar antes de existir, pudo haber gastado su
     // límite de enlaces — que pueda entrar de inmediato.
     resetRateLimit(loginEmailRateKey(parsed.data.email));
@@ -63,6 +65,8 @@ export async function createUser(
     }
     throw error;
   }
+
+  await sendWelcomeEmail(createdId);
 
   revalidatePath("/admin/usuarios");
   return { status: "success" };

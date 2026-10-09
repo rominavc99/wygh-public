@@ -33,6 +33,8 @@ model User {
   // Emoji que sale junto al "Hola, {nombre}" de la página principal. Lo
   // elige cada quien en /perfil; null = el de siempre (🐧, ver DEFAULT_GREETING_EMOJI).
   greetingEmoji String?
+  /// Última vez que abrió el sitio con sesión (ver src/lib/last-seen.ts).
+  lastSeenAt    DateTime?
 
   responses  Response[]
   accounts   Account[]
@@ -49,6 +51,8 @@ model User {
   communications Communication[]
   // Boletines de cumpleaños dedicados a esta persona.
   birthdayNewsletters BirthdayNewsletter[]
+  inactivityNudges InactivityNudge[]
+  engagementEmails EngagementEmail[]
 }
 
 // Reacción de un usuario a la respuesta de alguien en /boletines. `emoji`
@@ -213,6 +217,66 @@ model Settings {
   birthdayHeroTitle        String  @default("FELIZ CUMPLEAÑOS {NOMBRE}. LOS IMPORTANTES TE DESEAN LO MEJOR")
   birthdayHeroParagraph    String  @default("Hoy es el cumpleaños de {nombre}. Agradecemos todos los momentos contigo, y esperamos que te lo pases muy bien hoy (y siempre).")
   birthdayTopTitle         String  @default("Top 5 momentos que tuviste al llegar a tu casa en este último año")
+
+  // Resumen semanal de participación (src/lib/weekly-summary.ts). Día con
+  // la numeración de Date.getDay(): 0 = domingo, 1 = lunes…
+  weeklySummaryEnabled Boolean @default(true)
+  weeklySummaryDay     Int     @default(1)
+  weeklySummaryTime    String  @default("10:00")
+
+  // Correo a quien lleva N días seguidos sin responder
+  // (src/lib/inactivity-nudge.ts). Se manda al cumplir N, 2N, 3N… días.
+  inactivityNudgeEnabled  Boolean @default(true)
+  inactivityNudgeDays     Int     @default(3)
+  inactivityNudgeTime     String  @default("12:00")
+  inactivityNudgeSubject  String  @default("¿Acaso eres demasiado importante para nosotros?")
+  inactivityNudgeTemplate String  @default("Tienes {dias} días sin enviar una respuesta al newsletter de los importantes. Eres un sándwich remojado 🥪")
+
+  // Correos especiales (src/lib/send-extras.ts): salen a extrasEmailTime,
+  // salvo la bienvenida, que sale al dar de alta a alguien.
+  extrasEmailTime     String  @default("11:00")
+  streakEmailEnabled  Boolean @default(true)
+  onThisDayEnabled    Boolean @default(true)
+  anniversaryEnabled  Boolean @default(true)
+  wrappedEnabled      Boolean @default(true)
+  welcomeEmailEnabled Boolean @default(true)
+}
+
+/// Correo especial mandado a alguien (racha, "hace un año", aniversario,
+/// resumen anual, bienvenida). kind + key lo hacen idempotente: p. ej.
+/// kind "streak" con key "30:2026-10-08", o kind "wrapped" con key "2026".
+model EngagementEmail {
+  id     String   @id @default(cuid())
+  userId String
+  user   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind   String
+  key    String
+  sentAt DateTime @default(now())
+
+  @@unique([userId, kind, key])
+}
+
+/// Un resumen semanal enviado; weekStart es el primer día ("YYYY-MM-DD")
+/// de los 7 que cubre. Hace idempotente el envío, como NewsletterSend.
+model WeeklySummarySend {
+  weekStart      String   @id
+  weekEnd        String
+  sentAt         DateTime @default(now())
+  recipientCount Int
+  status         String // "sent" | "partial" | "failed"
+  error          String?
+}
+
+/// Correo de "llevas N días sin responder" mandado a alguien un día dado.
+model InactivityNudge {
+  id     String   @id @default(cuid())
+  userId String
+  user   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date   String // "YYYY-MM-DD" en que se mandó
+  missedDays Int
+  sentAt DateTime @default(now())
+
+  @@unique([userId, date])
 }
 
 // Frases cortas para la portada del boletín (ver Settings.selectedPhraseId).

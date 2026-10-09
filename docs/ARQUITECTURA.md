@@ -64,6 +64,11 @@ src/
     birthday-newsletter.ts       # Arma el boletín de cumpleaños (foto, top 5)
     send-birthday.ts             # Envío del de cumpleaños
     send-reminder.ts, reminder-email.ts            # Recordatorio a quien no ha respondido
+    participation-stats.ts       # Métricas de participación (dashboard, resumen semanal, inactividad)
+    send-engagement.ts, engagement-email.ts        # Envío del resumen semanal y correo de inactividad
+    weekly-report.ts, weekly-report-email.ts       # Contenido del resumen semanal (miembros y admins)
+    send-extras.ts, extras-email.ts                # Correos especiales (racha, hace un año, aniversario, anual, bienvenida)
+    last-seen.ts                 # Última visita al sitio de cada persona
     send-communication.ts, communication-email.ts  # Comunicaciones del admin
     notify-admins.ts, communication-result-email.ts # Aviso a admins del resultado de una programada
     notify-interaction.ts, interaction-email.ts    # Aviso de reacción/comentario a tu respuesta o comentario
@@ -185,8 +190,48 @@ Proceso PM2 aparte que cada minuto revisa:
 | Recordatorio a quien no ha respondido | 1 h antes de `sendTime` (si `reminderEnabled`) | `sendReminderIfNeeded()` | `ReminderSend.date` |
 | Boletín de cumpleaños | `Settings.birthdaySendTime` (si `birthdayEnabled`) | `sendBirthdayNewsletter()` | `BirthdayNewsletter(userId, date)` |
 | Comunicaciones programadas | cuando llega su `scheduledAt` | `sendCommunicationNow()` + aviso a admins | `Communication.status` |
+| Resumen semanal de participación | `weeklySummaryDay` a las `weeklySummaryTime` (si `weeklySummaryEnabled`) | `sendWeeklySummary()` | `WeeklySummarySend.weekStart` |
+| Correo a quien lleva N días sin responder | `inactivityNudgeTime` (si `inactivityNudgeEnabled`) | `sendInactivityNudges()` | `InactivityNudge(userId, date)` |
+| Correos especiales (racha, "hace un año", aniversario, resumen anual el 1 de enero) | `extrasEmailTime` (cada uno con su interruptor) | `sendDailyExtras()` | `EngagementEmail(userId, kind, key)` |
 
 Todo se manda solo a usuarios activos.
+
+### Participación (dashboard, resumen semanal, inactividad)
+
+`getParticipationStats()` (`src/lib/participation-stats.ts`) calcula
+todo a partir de los **días cerrados**: los días con fila en
+`NewsletterSend`, que son en los que se esperaba respuesta. El día de hoy
+no cuenta hasta que sale el boletín, un día sin boletín no se le "debe" a
+nadie, y a cada persona solo le cuentan los días desde su alta
+(`User.createdAt`). Los "días seguidos sin responder" son los días
+cerrados desde su última respuesta.
+
+- **Resumen semanal**: los 7 días anteriores al día de envío; mismo
+  contenido para todos (participación del grupo, destacados y días
+  respondidos por persona) más una línea personal.
+- **Resumen semanal, dos versiones**: los miembros reciben participación,
+  destacados, top 3 de quién responde/reacciona/comenta más y menos, y las
+  listas de quien lleva `inactivityNudgeDays` días o más sin responder y
+  sin entrar al sitio. Los admins reciben eso más una sección "Solo para
+  admins": tendencia contra la semana anterior, día por día, detalle por
+  persona, correos de inactividad enviados, candidatos a desactivar (14+
+  días sin entrar ni responder), altas nuevas, cumpleaños próximos y
+  problemas de envío.
+- **Última visita** (`src/lib/last-seen.ts`): `User.lastSeenAt` se anota
+  al abrir inicio, `/boletines`, `/mis-respuestas` o `/perfil` (como
+  mucho cada 10 minutos). Para lo anterior a ese campo se usa el
+  vencimiento de la sesión (Auth.js lo alarga como mucho una vez al día al
+  entrar, así que vencimiento − 90 días ≈ última visita) y la última
+  respuesta, reacción o comentario. Leer solo el correo no cuenta.
+- **Correos especiales** (`src/lib/send-extras.ts`): felicitación al
+  llegar a 7, 30, 50, 100, 200 y 365 días seguidos respondiendo; "hace un
+  año" con la respuesta del mismo día del año anterior; aniversario de la
+  fecha de alta; resumen anual el 1 de enero; y bienvenida al dar de alta
+  a alguien en `/admin/usuarios`. `EngagementEmail` los hace idempotentes
+  (se aparta la fila antes de mandar y se suelta si el envío falla).
+- **Correo de inactividad**: sale al llegar a `inactivityNudgeDays` días
+  sin responder y se repite cada otros tantos mientras siga la racha.
+  Título y mensaje se editan en Ajustes, con `{nombre}` y `{dias}`.
 
 ## El boletín diario
 
@@ -267,8 +312,14 @@ worker manda a todos los activos un boletín extra
 
 ## Panel de administración (`/admin/*`)
 
-Pestañas: Respuestas, Usuarios, Boletín, Fotos, Frases, Cumpleaños,
-Envíos, Comunicaciones, Ajustes.
+Pestañas: Estadísticas, Respuestas, Usuarios, Boletín, Fotos, Frases,
+Cumpleaños, Envíos, Comunicaciones, Ajustes.
+
+- **Estadísticas**: dashboard de participación por periodo (7/30/90
+  días o todo): participación diaria y por día de la semana, ranking de
+  quién responde más y menos, días seguidos sin responder, quién no ha
+  entrado al sitio, rachas, última visita, hora
+  típica de respuesta, reacciones/comentarios y datos curiosos.
 
 - **Usuarios**: alta/edición (nombre, correo, rol, apodo) y
   activar/desactivar. El `<select>` de rol se deshabilita en tu propia
@@ -290,7 +341,14 @@ Envíos, Comunicaciones, Ajustes.
   inmediato o programados. De los programados, los admins reciben un
   correo con el resultado.
 - **Ajustes**: nombre, lema, saludo, horarios, envío automático,
-  recordatorio, bloqueo tras el envío, remitente y portada.
+  recordatorio, bloqueo tras el envío, remitente, portada, resumen
+  semanal, correo de inactividad y correos especiales (con vista previa
+  de cada uno en `/admin/estadisticas/vista-previa?correo=…`). Cada
+  correo tiene "Enviar ahora" (`src/lib/send-now.ts`): lo manda en el
+  momento a quienes les tocaría hoy, mostrando antes la lista, y no lo
+  anota en `WeeklySummarySend` / `InactivityNudge` / `EngagementEmail`,
+  así que la programación sigue igual. A mano, la racha le llega a quien
+  lleve 7+ días y el resumen anual cubre el año en curso hasta ayer.
 
 ## Autoservicio del usuario
 

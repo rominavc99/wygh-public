@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
+import { markSeen } from "@/lib/last-seen";
 import { prisma } from "@/lib/prisma";
 import { todayLocalDate, formatLocalDate } from "@/lib/date";
 import { ResponseForm } from "./response-form";
@@ -11,6 +12,7 @@ import { DEFAULT_GREETING_EMOJI } from "@/lib/user-schema";
 export default async function HomePage() {
   const session = await auth();
   if (!session?.user) redirect("/login");
+  await markSeen(session.user.id);
 
   const date = todayLocalDate();
   const [existing, settings, todaysSend, me] = await Promise.all([

@@ -82,3 +82,30 @@ export function nextBirthdayDate(birthday: string, from: string): string {
 export function oneYearBefore(date: string): string {
   return birthdayInYear(date, Number(date.slice(0, 4)) - 1);
 }
+
+/** Fecha local ("YYYY-MM-DD") de un instante, en la zona del servidor. */
+export function localDateOf(instant: Date): string {
+  const year = instant.getFullYear();
+  const month = String(instant.getMonth() + 1).padStart(2, "0");
+  const day = String(instant.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+/** `date` ("YYYY-MM-DD") más `days` días calendario (negativo para restar). */
+export function addDaysLocal(date: string, days: number): string {
+  const [y, m, d] = date.split("-").map(Number);
+  return localDateOf(new Date(y, m - 1, d + days));
+}
+
+/** Día de la semana de `date` ("YYYY-MM-DD"), como Date.getDay(): 0 = domingo. */
+export function weekdayOf(date: string): number {
+  const [y, m, d] = date.split("-").map(Number);
+  return new Date(y, m - 1, d).getDay();
+}
+
+/** Días calendario de `from` a `to` ("YYYY-MM-DD"); negativo si `to` es antes. */
+export function daysBetween(from: string, to: string): number {
+  const [y1, m1, d1] = from.split("-").map(Number);
+  const [y2, m2, d2] = to.split("-").map(Number);
+  return Math.round((Date.UTC(y2, m2 - 1, d2) - Date.UTC(y1, m1 - 1, d1)) / 86_400_000);
+}

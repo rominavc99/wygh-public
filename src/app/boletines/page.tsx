@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
+import { markSeen } from "@/lib/last-seen";
 import { prisma } from "@/lib/prisma";
 import { resolveNewsletterHero, getSentHero, capitalize, type NewsletterHero } from "@/lib/newsletter";
 import { parseMomentsSnapshot, topMoments } from "@/lib/birthday-newsletter";
@@ -16,6 +17,7 @@ export default async function BoletinesPage({
 }) {
   const session = await auth();
   if (!session?.user) redirect("/login");
+  await markSeen(session.user.id);
 
   const params = await searchParams;
 
