@@ -5,7 +5,7 @@ import { displayName } from "@/lib/display-name";
 import { addDaysLocal } from "@/lib/date";
 import { getParticipationStats } from "@/lib/participation-stats";
 import { fillNudgeTemplate, inactivityNudgeEmailHtml, inactivityNudgeEmailText } from "@/lib/engagement-email";
-import { buildWeeklyReport } from "@/lib/weekly-report";
+import { buildWeeklyReport, type WeeklyReport } from "@/lib/weekly-report";
 import { weeklyReportEmailHtml, weeklyReportEmailText } from "@/lib/weekly-report-email";
 
 type SettingsRow = Awaited<ReturnType<typeof prisma.settings.upsert>>;
@@ -42,6 +42,22 @@ export type WeeklySummaryResult = {
   recipientCount: number;
 };
 
+type Recipient = { id: string; email: string; name: string; username: string | null; role: string };
+
+/** Manda el resumen a una persona: la versión de admins si es admin. */
+export async function sendWeeklyReportTo(user: Recipient, report: WeeklyReport): Promise<boolean> {
+  const settings = await prisma.settings.upsert({ where: { id: 1 }, create: { id: 1 }, update: {} });
+  const isAdmin = user.role === "ADMIN";
+  const args = { name: displayName(user), userId: user.id, report, siteUrl: getSiteUrl(), isAdmin };
+  return sendOne({
+    to: user.email,
+    from: fromAddress(settings),
+    subject: `📊 Resumen semanal${isAdmin ? " (admin)" : ""} — ${settings.newsletterName}`,
+    text: weeklyReportEmailText(args),
+    html: weeklyReportEmailHtml(args),
+  });
+}
+
 /**
  * Manda el resumen de los 7 días anteriores a `today`: la versión de
  * admins a los admins y la de miembros al resto. Idempotente por semana
@@ -61,26 +77,8 @@ export async function sendWeeklySummary(today: string): Promise<WeeklySummaryRes
     return { status: "skipped_no_days", recipientCount: 0 };
   }
 
-  const [recipients, settings] = await Promise.all([
-    prisma.user.findMany({ where: { active: true } }),
-    prisma.settings.upsert({ where: { id: 1 }, create: { id: 1 }, update: {} }),
-  ]);
-  const from = fromAddress(settings);
-  const siteUrl = getSiteUrl();
-
-  const results = await Promise.all(
-    recipients.map((user) => {
-      const isAdmin = user.role === "ADMIN";
-      const args = { name: displayName(user), userId: user.id, report, siteUrl, isAdmin };
-      return sendOne({
-        to: user.email,
-        from,
-        subject: `📊 Resumen semanal${isAdmin ? " (admin)" : ""} — ${settings.newsletterName}`,
-        text: weeklyReportEmailText(args),
-        html: weeklyReportEmailHtml(args),
-      });
-    })
-  );
+  const recipients = await prisma.user.findMany({ where: { active: true } });
+  const results = await Promise.all(recipients.map((user) => sendWeeklyReportTo(user, report)));
 
   const failures = recipients.filter((_, i) => !results[i]).map((u) => u.email);
   const status = failures.length === 0 ? "sent" : failures.length === recipients.length ? "failed" : "partial";
@@ -129,23 +127,11 @@ export async function sendInactivityNudges(today: string): Promise<{ sent: numbe
   if (!settings.inactivityNudgeEnabled) return { sent: 0, failed: 0 };
 
   const pending = await pendingInactivityNudges(today, settings.inactivityNudgeDays);
-  const from = fromAddress(settings);
-  const formUrl = getSiteUrl();
   let sent = 0;
   let failed = 0;
 
   for (const user of pending) {
-    const heading = fillNudgeTemplate(settings.inactivityNudgeSubject, user.name, user.missedStreak);
-    const message = fillNudgeTemplate(settings.inactivityNudgeTemplate, user.name, user.missedStreak);
-    const args = { name: user.name, heading, message, formUrl };
-    const ok = await sendOne({
-      to: user.email,
-      from,
-      subject: heading,
-      text: inactivityNudgeEmailText(args),
-      html: inactivityNudgeEmailHtml(args),
-    });
-    if (!ok) {
+    if (!(await sendNudgeTo(user))) {
       failed++;
       continue;
     }
@@ -153,4 +139,19 @@ export async function sendInactivityNudges(today: string): Promise<{ sent: numbe
     await prisma.inactivityNudge.create({ data: { userId: user.id, date: today, missedDays: user.missedStreak } });
   }
   return { sent, failed };
+}
+
+/** Manda el correo de inactividad a una persona, con los textos guardados en Ajustes. */
+export async function sendNudgeTo(user: { name: string; email: string; missedStreak: number }): Promise<boolean> {
+  const settings = await prisma.settings.upsert({ where: { id: 1 }, create: { id: 1 }, update: {} });
+  const heading = fillNudgeTemplate(settings.inactivityNudgeSubject, user.name, user.missedStreak);
+  const message = fillNudgeTemplate(settings.inactivityNudgeTemplate, user.name, user.missedStreak);
+  const args = { name: user.name, heading, message, formUrl: getSiteUrl() };
+  return sendOne({
+    to: user.email,
+    from: fromAddress(settings),
+    subject: heading,
+    text: inactivityNudgeEmailText(args),
+    html: inactivityNudgeEmailHtml(args),
+  });
 }

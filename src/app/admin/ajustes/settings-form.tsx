@@ -3,6 +3,7 @@
 import { useActionState } from "react";
 import { WEEKDAY_NAMES } from "@/lib/weekdays";
 import { updateSettings, type SettingsFormState } from "./actions";
+import { SendNowButton } from "./send-now-button";
 
 type Settings = {
   newsletterName: string;
@@ -37,16 +38,26 @@ type Settings = {
 };
 
 const EXTRA_EMAILS = [
-  { name: "streakEmailEnabled", preview: "racha", label: "🔥 Felicitación por racha", hint: "A los 7, 30, 50, 100, 200 y 365 días seguidos respondiendo." },
-  { name: "onThisDayEnabled", preview: "hace-un-ano", label: "📅 Hace un año…", hint: "Le recuerda a cada quien lo que respondió ese mismo día el año pasado." },
-  { name: "anniversaryEnabled", preview: "aniversario", label: "🎂 Aniversario en el grupo", hint: "Cada año desde que dieron de alta a la persona." },
-  { name: "wrappedEnabled", preview: "anual", label: "🎁 Resumen anual", hint: "El 1 de enero, el año anterior de cada quien." },
-  { name: "welcomeEmailEnabled", preview: "bienvenida", label: "👋 Bienvenida", hint: "Al dar de alta a alguien en Usuarios (sale en ese momento)." },
+  { name: "streakEmailEnabled", kind: "streak", preview: "racha", label: "🔥 Felicitación por racha", hint: "A los 7, 30, 50, 100, 200 y 365 días seguidos respondiendo. Con \"Enviar ahora\" le llega a quien lleve 7 o más, con sus días." },
+  { name: "onThisDayEnabled", kind: "on-this-day", preview: "hace-un-ano", label: "📅 Hace un año…", hint: "Le recuerda a cada quien lo que respondió ese mismo día el año pasado." },
+  { name: "anniversaryEnabled", kind: "anniversary", preview: "aniversario", label: "🎂 Aniversario en el grupo", hint: "Cada año desde que dieron de alta a la persona." },
+  { name: "wrappedEnabled", kind: "wrapped", preview: "anual", label: "🎁 Resumen anual", hint: "El 1 de enero, el año anterior de cada quien. Con \"Enviar ahora\" sale el año en curso hasta ayer." },
+  { name: "welcomeEmailEnabled", kind: "welcome", preview: "bienvenida", label: "👋 Bienvenida", hint: "Al dar de alta a alguien en Usuarios (sale en ese momento)." },
 ] as const;
 
 const initialState: SettingsFormState = { status: "idle" };
 
-export function SettingsForm({ settings }: { settings: Settings }) {
+type SendNowRecipients = Record<"weekly" | "nudge" | "streak" | "on-this-day" | "anniversary" | "wrapped", string[]>;
+
+export function SettingsForm({
+  settings,
+  users,
+  sendNow,
+}: {
+  settings: Settings;
+  users: { id: string; name: string }[];
+  sendNow: SendNowRecipients;
+}) {
   const [state, formAction, pending] = useActionState(updateSettings, initialState);
   const fieldErrors = state.status === "error" ? state.fieldErrors ?? {} : {};
 
@@ -232,6 +243,8 @@ export function SettingsForm({ settings }: { settings: Settings }) {
             />
           </Field>
         </div>
+
+        <SendNowButton kind="weekly" label="Resumen semanal" recipients={sendNow.weekly} />
       </div>
 
       <div className="mt-2 flex flex-col gap-4 rounded-xl border border-panel-edge bg-panel-2 p-4">
@@ -296,6 +309,8 @@ export function SettingsForm({ settings }: { settings: Settings }) {
             required
           />
         </Field>
+
+        <SendNowButton kind="nudge" label="Correo a quien no responde" recipients={sendNow.nudge} />
       </div>
 
       <div className="mt-2 flex flex-col gap-4 rounded-xl border border-panel-edge bg-panel-2 p-4">
@@ -325,6 +340,22 @@ export function SettingsForm({ settings }: { settings: Settings }) {
                 Vista previa
               </a>
             </p>
+            <div className="ml-6 mt-2">
+              {email.kind === "welcome" ? (
+                <SendNowButton kind="welcome" label="Bienvenida" recipients={null}>
+                  <select name="welcomeUserId" defaultValue="" className="xp-input w-auto" aria-label="A quién mandarle la bienvenida">
+                    <option value="">Elige a quién…</option>
+                    {users.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.name}
+                      </option>
+                    ))}
+                  </select>
+                </SendNowButton>
+              ) : (
+                <SendNowButton kind={email.kind} label={email.label} recipients={sendNow[email.kind]} />
+              )}
+            </div>
           </div>
         ))}
       </div>

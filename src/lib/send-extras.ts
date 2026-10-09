@@ -40,11 +40,16 @@ async function deliverOnce(
   } catch {
     return false; // ya se mandó (o se está mandando)
   }
-  const settings = await getSettings();
-  const { html, attachments } = await embedResponsePhotosAsAttachments(parts.html);
-  const ok = await sendOne({ to: user.email, from: fromAddress(settings), subject: parts.subject, text: parts.text, html, attachments });
+  const ok = await deliverNow(user, parts);
   if (!ok) await prisma.engagementEmail.deleteMany({ where: { userId: user.id, kind, key } });
   return ok;
+}
+
+/** Manda un correo especial sin anotarlo (lo usa también "Enviar ahora" en Ajustes). */
+export async function deliverNow(user: { email: string }, parts: EmailParts): Promise<boolean> {
+  const settings = await getSettings();
+  const { html, attachments } = await embedResponsePhotosAsAttachments(parts.html);
+  return sendOne({ to: user.email, from: fromAddress(settings), subject: parts.subject, text: parts.text, html, attachments });
 }
 
 // ---------------------------------------------------------------------------

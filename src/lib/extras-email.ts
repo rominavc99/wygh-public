@@ -184,7 +184,9 @@ export type WrappedData = {
   mostConstant: string[];
 };
 
-export function wrappedEmail(d: WrappedData, siteUrl: string): EmailParts {
+/** `partial`: se manda antes de que acabe el año ("Enviar ahora"), así que dice "hasta ahora". */
+export function wrappedEmail(d: WrappedData, siteUrl: string, partial = false): EmailParts {
+  const suffix = partial ? " hasta ahora" : "";
   const rate = d.eligibleDays ? `${Math.round((d.responses / d.eligibleDays) * 100)}%` : "—";
   const stats = [
     { label: "Días que respondiste", value: `${d.responses} de ${d.eligibleDays} (${rate})` },
@@ -203,25 +205,25 @@ export function wrappedEmail(d: WrappedData, siteUrl: string): EmailParts {
       : "",
   ].filter(Boolean);
   return {
-    subject: `🎁 Tu ${d.year} en ${d.newsletterName}`,
+    subject: `🎁 Tu ${d.year}${suffix} en ${d.newsletterName}`,
     html: emailWindow({
-      title: `🎁&nbsp; Tu ${d.year}`,
+      title: `🎁&nbsp; Tu ${d.year}${suffix}`,
       width: 520,
       body: `${p(`Hola ${escapeHtml(d.name)},`, 14)}
-        ${big(`Así fue tu ${d.year} en el newsletter de los importantes`)}
+        ${big(partial ? `Así va tu ${d.year} en el newsletter de los importantes` : `Así fue tu ${d.year} en el newsletter de los importantes`)}
         ${statGrid(stats)}
         ${extra.map((e) => p(e, 14)).join("")}
         <p class="text-ink" style="margin:18px 0 8px;color:${l.ink};font-family:${FONT_DISPLAY};font-weight:700;font-size:15px;">Y el grupo…</p>
         ${p(`Entre todos mandaron <strong>${d.groupResponses}</strong> respuestas, con una participación de <strong>${d.groupRate}</strong>.`, 14)}
         ${d.mostConstant.length ? p(`🏆 Los más constantes del año: <strong>${d.mostConstant.map(escapeHtml).join(", ")}</strong>.`, 14) : ""}
-        ${p(`¡Por otro año contándonos qué hacemos al llegar a casa! 🥂`, 14)}
+        ${partial ? "" : p(`¡Por otro año contándonos qué hacemos al llegar a casa! 🥂`, 14)}
         ${button(siteUrl, "Ir al sitio →")}
-        ${faint("MSN status: 🎆 feliz año nuevo")}`,
+        ${faint(partial ? "MSN status: 🟢 en línea" : "MSN status: 🎆 feliz año nuevo")}`,
     }),
     text: [
       `Hola ${d.name},`,
       "",
-      `Así fue tu ${d.year} en el newsletter de los importantes:`,
+      `${partial ? "Así va" : "Así fue"} tu ${d.year} en el newsletter de los importantes:`,
       ...stats.map((s) => `- ${s.label}: ${s.value}`),
       ...extra.map((e) => e.replace(/<\/?strong>/g, "")),
       "",

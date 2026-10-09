@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/auth-guards";
+import { todayLocalDate } from "@/lib/date";
+import { MANUAL_EMAIL_KINDS, sendManualEmail, type ManualEmailKind } from "@/lib/send-now";
 
 const optionalUrl = z
   .string()
@@ -115,4 +117,24 @@ export async function updateSettings(
   revalidatePath("/admin/boletin");
   revalidatePath("/admin/estadisticas");
   return { status: "success" };
+}
+
+export type SendNowState = { status: "idle" } | { status: "done"; message: string; ok: boolean };
+
+/** "Enviar ahora" de un correo; `kind` viene ligado desde el botón. No toca la programación. */
+export async function sendEmailNow(
+  kind: ManualEmailKind,
+  _prevState: SendNowState,
+  formData: FormData
+): Promise<SendNowState> {
+  await requireAdmin();
+  if (!MANUAL_EMAIL_KINDS.includes(kind)) return { status: "done", ok: false, message: "Correo desconocido." };
+
+  const userId = kind === "welcome" ? String(formData.get("welcomeUserId") ?? "") : undefined;
+  if (kind === "welcome" && !userId) return { status: "done", ok: false, message: "Elige a quién mandarle la bienvenida." };
+
+  const { total, sent } = await sendManualEmail(kind, todayLocalDate(), userId);
+  if (total === 0) return { status: "done", ok: false, message: "Hoy no le toca a nadie, no se mandó nada." };
+  if (sent === total) return { status: "done", ok: true, message: `✉️ Enviado a ${sent} ${sent === 1 ? "persona" : "personas"}.` };
+  return { status: "done", ok: false, message: `Se mandó a ${sent} de ${total}; revisa los logs del servidor.` };
 }

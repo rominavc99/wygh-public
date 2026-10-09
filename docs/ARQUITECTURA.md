@@ -343,7 +343,12 @@ Cumpleaños, Envíos, Comunicaciones, Ajustes.
 - **Ajustes**: nombre, lema, saludo, horarios, envío automático,
   recordatorio, bloqueo tras el envío, remitente, portada, resumen
   semanal, correo de inactividad y correos especiales (con vista previa
-  de cada uno en `/admin/estadisticas/vista-previa?correo=…`).
+  de cada uno en `/admin/estadisticas/vista-previa?correo=…`). Cada
+  correo tiene "Enviar ahora" (`src/lib/send-now.ts`): lo manda en el
+  momento a quienes les tocaría hoy, mostrando antes la lista, y no lo
+  anota en `WeeklySummarySend` / `InactivityNudge` / `EngagementEmail`,
+  así que la programación sigue igual. A mano, la racha le llega a quien
+  lleve 7+ días y el resumen anual cubre el año en curso hasta ayer.
 
 ## Autoservicio del usuario
 
