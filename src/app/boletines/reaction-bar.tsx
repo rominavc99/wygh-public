@@ -4,7 +4,7 @@ import { useRef, useState, useTransition } from "react";
 import { toggleReaction, toggleCommentReaction } from "./actions";
 import { EmojiPicker } from "./emoji-picker";
 import { Popover } from "./popover";
-import { QUICK_EMOJIS, EMOJI_PICKER, ASCII_PICKER } from "@/lib/emoji-data";
+import { QUICK_EMOJIS, EMOJI_CATEGORIES, ASCII_PICKER } from "@/lib/emoji-data";
 import type { ReactionSummary } from "@/lib/reactions";
 
 export type { ReactionSummary };
@@ -96,7 +96,7 @@ export function ReactionBar({
 
       {view === "quick" ? (
         <Popover anchorRef={triggerRef} onClose={() => setView(null)} label="Elegir reacción">
-          <div className="flex items-center gap-1 rounded-xl border-2 border-panel-edge bg-panel p-1.5 shadow-lg">
+          <div className="flex max-w-[calc(100vw-2rem)] flex-wrap items-center gap-1 rounded-xl border-2 border-panel-edge bg-panel p-1.5 shadow-lg sm:flex-nowrap">
             {QUICK_EMOJIS.map((emoji) => (
               <button
                 key={emoji}
@@ -132,7 +132,7 @@ export function ReactionBar({
 
       {view === "emoji" ? (
         <EmojiPicker
-          items={EMOJI_PICKER}
+          categories={EMOJI_CATEGORIES}
           label="Selector de emojis"
           variant="emoji"
           anchorRef={triggerRef}
