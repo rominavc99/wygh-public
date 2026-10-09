@@ -25,7 +25,7 @@ export default async function LoginPage({
         <div className="win-body">
           <h1 className="mb-1 text-xl font-bold text-ink">{settings.newsletterName}</h1>
           <p className="mb-6 text-sm text-ink-soft">
-            Escribe tu correo y recibirás un enlace para entrar ✨
+            Escribe tu correo y te mandaremos un código para entrar ✨
           </p>
 
           <LoginForm callbackUrl={callbackUrl} />

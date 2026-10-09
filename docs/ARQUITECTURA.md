@@ -22,7 +22,7 @@ felicitarle. Todo autoalojado en una PC personal, sin servicios de pago.
 | UI | React 19 + Tailwind CSS 4 | Estética "retro Windows/MSN Messenger + periódico" a propósito (ver `globals.css`). |
 | ORM | Prisma 7 | **Requiere driver adapters**. Cliente generado en `src/generated/prisma` (gitignored). |
 | Base de datos | SQLite | Archivo único `data/app.db`, gitignored. Adaptador `@prisma/adapter-better-sqlite3`. |
-| Auth | Auth.js v5 (beta) | Enlace mágico por correo, sin contraseñas. Sesiones en base de datos. |
+| Auth | Auth.js v5 (beta) | Enlace mágico o código por correo, sin contraseñas. Sesiones en base de datos. |
 | Correo | Nodemailer sobre SMTP de Gmail | Transporte compartido con pool (`src/lib/mailer.ts`). |
 | Imágenes | sharp | Valida las fotos subidas y las reduce para el correo. |
 | Cron | `node-cron` | En `worker.ts`, revisa cada minuto qué toca enviar. |
@@ -37,7 +37,7 @@ src/
   app/
     page.tsx, response-form.tsx, actions.ts   # Formulario diario (home) y su Server Action
     birthday-prompt.tsx         # Aviso "Agrega tu fecha de cumpleaños" en la home
-    login/                       # Login sin contraseña (enlace mágico)
+    login/                       # Login sin contraseña (enlace mágico o código)
     perfil/                      # Autoservicio: apodo y fecha de cumpleaños
     mis-respuestas/              # Historial propio
     boletines/                   # Archivo de boletines enviados, interactivo (reacciones, comentarios)
@@ -87,8 +87,21 @@ prisma/schema.prisma             # Modelo de datos
 
 ## Autenticación y autorización
 
-- **Enlace mágico**: no hay contraseñas. La persona pide un enlace de un
-  solo uso a su correo (`src/app/login`) y Auth.js lo manda vía Nodemailer.
+- **Enlace mágico + código**: no hay contraseñas. La persona pide un
+  correo (`src/app/login`) y Auth.js lo manda vía Nodemailer, con un
+  código de 6 dígitos y un enlace que lleva ese mismo código (es el token
+  de Auth.js, ver `src/lib/login-code.ts`; vigencia de 15 minutos).
+  - El código se escribe en `/login/verificar`, en la misma pantalla
+    donde se pidió. Existe porque WhatsApp y las apps de correo en iPhone
+    abren los enlaces en su navegador interno, que no comparte cookies con
+    Safari: con solo el enlace, la sesión quedaba en Safari y la persona
+    tenía que volver a pedir correo cada vez que entraba desde WhatsApp.
+  - `verifyCode` revisa el código contra `VerificationToken` sin
+    consumirlo y luego manda al callback normal de Auth.js, que crea la
+    sesión. Con 5 códigos incorrectos se borran los códigos vigentes de
+    ese correo, y el callback (`GET /api/auth/callback/nodemailer`) tiene
+    su propio tope de 10 intentos por correo para que no se pueda adivinar
+    probando URLs.
 - **Sin auto-registro**: solo puede entrar quien un admin dio de alta en
   `/admin/usuarios` y está activo.
   - `requestMagicLink` (`src/app/login/actions.ts`) lo revisa primero y,
