@@ -121,10 +121,12 @@ export function emailThemeHead(): string {
 export function magicLinkEmailHtml({
   name,
   url,
+  code,
   newsletterName,
 }: {
   name: string;
   url: string;
+  code: string;
   newsletterName: string;
 }): string {
   const safeName = escapeHtml(name);
@@ -149,7 +151,9 @@ export function magicLinkEmailHtml({
           <tr>
             <td style="padding:28px 26px 30px;">
               <p class="text-ink" style="margin:0 0 6px;color:${l.ink};font-family:${FONT_DISPLAY};font-weight:700;font-size:19px;">${safeTitle}</p>
-              <p class="text-ink" style="margin:0 0 18px;color:${l.ink};font-size:14px;line-height:1.6;">Hola ${safeName}, usa este botón para entrar. Es de un solo uso y expira pronto ✨</p>
+              <p class="text-ink" style="margin:0 0 18px;color:${l.ink};font-size:14px;line-height:1.6;">Hola ${safeName}, tu código para entrar es:</p>
+              <p class="text-ink" style="margin:0 0 8px;color:${l.ink};font-family:${FONT_DISPLAY};font-weight:700;font-size:34px;letter-spacing:8px;">${escapeHtml(code)}</p>
+              <p class="text-ink" style="margin:0 0 18px;color:${l.ink};font-size:14px;line-height:1.6;">Escríbelo en la pantalla donde lo pediste, o usa este botón. Es de un solo uso y expira en 15 minutos ✨</p>
               <table role="presentation" cellpadding="0" cellspacing="0">
                 <tr>
                   <td class="bg-btn" style="border-radius:18px;${flatBg(l.btn)}">
@@ -157,7 +161,7 @@ export function magicLinkEmailHtml({
                   </td>
                 </tr>
               </table>
-              <p class="text-faint" style="margin:22px 0 0;color:${l.faint};font-size:12px;line-height:1.5;">Si no pediste este enlace, ignora este correo. MSN status: 🟢 en línea</p>
+              <p class="text-faint" style="margin:22px 0 0;color:${l.faint};font-size:12px;line-height:1.5;">Si no pediste este código, ignora este correo. MSN status: 🟢 en línea</p>
             </td>
           </tr>
         </table>
@@ -168,6 +172,6 @@ export function magicLinkEmailHtml({
 </html>`;
 }
 
-export function magicLinkEmailText({ name, url }: { name: string; url: string }): string {
-  return `Hola ${name},\n\nUsa este enlace para entrar (un solo uso, expira pronto):\n${url}\n\nSi no lo pediste, ignora este correo.`;
+export function magicLinkEmailText({ name, url, code }: { name: string; url: string; code: string }): string {
+  return `Hola ${name},\n\nTu código para entrar es: ${code}\n\nEscríbelo en la pantalla donde lo pediste, o usa este enlace (un solo uso, expira en 15 minutos):\n${url}\n\nSi no lo pediste, ignora este correo.`;
 }

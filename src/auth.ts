@@ -5,6 +5,7 @@ import { PrismaAdapter } from "@auth/prisma-adapter";
 import { prisma } from "@/lib/prisma";
 import { magicLinkEmailHtml, magicLinkEmailText } from "@/lib/email-theme";
 import { getSmtpConfig } from "@/lib/mailer";
+import { generateLoginCode, LOGIN_CODE_MAX_AGE_SECONDS } from "@/lib/login-code";
 import type { Role } from "@/generated/prisma/enums";
 
 declare module "next-auth" {
@@ -48,11 +49,20 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     Nodemailer({
       server: getSmtpConfig(),
       from: process.env.EMAIL_FROM,
-      async sendVerificationRequest({ identifier, url, provider }) {
+      // El token es un código de 6 dígitos (ver src/lib/login-code.ts): el
+      // mismo sirve en el enlace del correo y escrito a mano en
+      // /login/verificar, para quien abre el sitio desde el navegador
+      // interno de WhatsApp/Gmail y no comparte cookies con Safari.
+      generateVerificationToken: generateLoginCode,
+      maxAge: LOGIN_CODE_MAX_AGE_SECONDS,
+      // Explícito para que verifyLoginCode() calcule el mismo hash que
+      // Auth.js guarda en VerificationToken.
+      secret: process.env.AUTH_SECRET,
+      async sendVerificationRequest({ identifier, url, token, provider }) {
         // Para desarrollar sin configurar correo: fuera de producción y sin
         // SMTP_HOST, el enlace se imprime en la terminal en vez de enviarse.
         if (process.env.NODE_ENV !== "production" && !process.env.SMTP_HOST) {
-          console.log(`\n🔑 Enlace para entrar como ${identifier}:\n${url}\n`);
+          console.log(`\n🔑 Enlace para entrar como ${identifier} (código ${token}):\n${url}\n`);
           return;
         }
         const user = await prisma.user.findUnique({ where: { email: identifier } });
@@ -68,8 +78,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           to: identifier,
           from: provider.from,
           subject: `Inicia sesión en ${newsletterName}`,
-          text: magicLinkEmailText({ name, url }),
-          html: magicLinkEmailHtml({ name, url, newsletterName }),
+          text: magicLinkEmailText({ name, url, code: token }),
+          html: magicLinkEmailHtml({ name, url, code: token, newsletterName }),
         });
         const failed = (result.rejected ?? []).concat(result.pending ?? []).filter(Boolean);
         if (failed.length) {

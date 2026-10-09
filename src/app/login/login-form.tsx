@@ -31,7 +31,7 @@ export function LoginForm({ callbackUrl }: { callbackUrl: string }) {
       ) : null}
 
       <button type="submit" disabled={pending} className="xp-btn">
-        {pending ? "Enviando…" : "Enviarme el enlace →"}
+        {pending ? "Enviando…" : "Enviarme el código →"}
       </button>
     </form>
   );
