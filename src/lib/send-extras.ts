@@ -5,6 +5,7 @@ import { birthdayInYear, localDateOf, oneYearBefore } from "@/lib/date";
 import { getParticipationStats } from "@/lib/participation-stats";
 import { embedResponsePhotosAsAttachments } from "@/lib/send-newsletter";
 import { fromAddress, sendOne } from "@/lib/send-engagement";
+import { recordNotification } from "@/lib/notifications";
 import {
   anniversaryEmail,
   onThisDayEmail,
@@ -18,7 +19,7 @@ import {
 /** Días seguidos respondiendo en los que llega la felicitación. */
 export const STREAK_MILESTONES = [7, 30, 50, 100, 200, 365];
 
-type Kind = "streak" | "on-this-day" | "anniversary" | "wrapped" | "welcome";
+export type Kind = "streak" | "on-this-day" | "anniversary" | "wrapped" | "welcome";
 
 async function getSettings() {
   return prisma.settings.upsert({ where: { id: 1 }, create: { id: 1 }, update: {} });
@@ -40,16 +41,19 @@ async function deliverOnce(
   } catch {
     return false; // ya se mandó (o se está mandando)
   }
-  const ok = await deliverNow(user, parts);
+  const ok = await deliverNow(user, kind, parts);
   if (!ok) await prisma.engagementEmail.deleteMany({ where: { userId: user.id, kind, key } });
   return ok;
 }
 
 /** Manda un correo especial sin anotarlo (lo usa también "Enviar ahora" en Ajustes). */
-export async function deliverNow(user: { email: string }, parts: EmailParts): Promise<boolean> {
+export async function deliverNow(user: { id: string; email: string }, kind: Kind, parts: EmailParts): Promise<boolean> {
   const settings = await getSettings();
   const { html, attachments } = await embedResponsePhotosAsAttachments(parts.html);
-  return sendOne({ to: user.email, from: fromAddress(settings), subject: parts.subject, text: parts.text, html, attachments });
+  const ok = await sendOne({ to: user.email, from: fromAddress(settings), subject: parts.subject, text: parts.text, html, attachments });
+  // En el sitio se guarda con las fotos por URL (se ven porque ahí hay sesión).
+  if (ok) await recordNotification({ userId: user.id, kind, title: parts.subject, text: parts.text, html: parts.html });
+  return ok;
 }
 
 // ---------------------------------------------------------------------------

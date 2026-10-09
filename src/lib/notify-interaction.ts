@@ -3,6 +3,7 @@ import { getMailer, getFromAddress } from "@/lib/mailer";
 import { displayName } from "@/lib/display-name";
 import { interactionEmailHtml, interactionEmailText } from "@/lib/interaction-email";
 import { getSiteUrl } from "@/lib/site-url";
+import { recordNotification } from "@/lib/notifications";
 
 /**
  * Avisa por correo al dueño de una respuesta que alguien reaccionó o
@@ -76,11 +77,14 @@ async function notifyUser({
   const actorName = displayName(actor);
   const recipientName = displayName(recipient);
 
+  const subject = `💬 ${actorName} ${message}`;
   await getMailer().sendMail({
     to: recipient.email,
     from,
-    subject: `💬 ${actorName} ${message}`,
+    subject,
     text: interactionEmailText({ name: recipientName, actorName, message, boletinUrl }),
     html: interactionEmailHtml({ name: recipientName, actorName, message, boletinUrl }),
   });
+  // Lleva directo al boletín (ahí está la reacción o el comentario).
+  await recordNotification({ userId: recipient.id, kind: "interaction", title: subject, text: "Toca para verlo en el boletín.", url: boletinUrl });
 }

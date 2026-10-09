@@ -355,6 +355,19 @@ Cumpleaños, Envíos, Comunicaciones, Ajustes.
 - **`/perfil`**: nombre y correo de solo lectura, apodo (`username`) y
   fecha de cumpleaños.
 - **`/mis-respuestas`**: historial propio, día por día.
+- **`/notificaciones`**: copia de cada correo que se le mandó a la persona
+  (boletín, cumpleaños, recordatorio, reacciones/comentarios,
+  comunicaciones, resumen semanal, inactividad, especiales y, a admins,
+  el resultado de comunicaciones programadas). `recordNotification()`
+  (`src/lib/notifications.ts`) la anota solo si el correo salió; los
+  correos del código de acceso no entran. Si guarda el HTML del correo,
+  el detalle lo muestra en un iframe sin scripts; si no (boletín,
+  reacciones), lleva al boletín. El contador de no leídas sale en el menú
+  de inicio, y el worker borra las de más de un año a las 3:30.
+- **Reacciones**: `QUICK_EMOJIS` y `EMOJI_CATEGORIES` en
+  `src/lib/emoji-data.ts`, sin emojis de Unicode 15 en adelante (muchos
+  celulares no los tienen y salen como cuadrito; así pasó con 🫪, que se
+  cambió por 🥴).
 
 ## Seguridad (resumen)
 

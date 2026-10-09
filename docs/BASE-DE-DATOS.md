@@ -99,6 +99,7 @@ erDiagram
     User ||--o{ BirthdayNewsletter : "le dedican"
     User ||--o{ InactivityNudge : "recibe"
     User ||--o{ EngagementEmail : "recibe"
+    User ||--o{ Notification : "recibe"
     HeroPhoto ||--o{ DailyPick : "elegida para un día"
     Phrase ||--o{ DailyPick : "elegida para un día"
     HeroPhoto ||--o{ BirthdayNewsletter : "portada de"
@@ -349,6 +350,9 @@ erDiagram
   "llevas N días sin responder": además de evitar repetirlo el mismo día,
   es el historial con el que se decide el siguiente (a los N, 2N, 3N…
   días de la misma racha; ver `pendingInactivityNudges()`).
+- **`Notification`**: copia en el sitio de cada correo mandado a alguien
+  (`html` con el correo, o `url` a donde lleva si no se guarda);
+  `readAt` null = sin leer. Se borran a los 365 días.
 - **`EngagementEmail`** hace idempotentes los correos especiales (racha,
   "hace un año", aniversario, resumen anual, bienvenida).
 - **`User.lastSeenAt`**: última vez que la persona abrió el sitio con

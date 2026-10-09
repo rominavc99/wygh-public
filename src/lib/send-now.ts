@@ -45,7 +45,7 @@ async function jobsFor(kind: ManualEmailKind, today: string, userId?: string): P
         .filter((u) => u.currentStreak >= STREAK_MILESTONES[0])
         .map((u) => ({
           name: `${u.name} (${u.currentStreak} días)`,
-          send: () => deliverNow(u, streakEmail({ name: u.name, days: u.currentStreak, siteUrl: getSiteUrl() })),
+          send: () => deliverNow(u, "streak", streakEmail({ name: u.name, days: u.currentStreak, siteUrl: getSiteUrl() })),
         }));
     }
     case "on-this-day": {
@@ -55,7 +55,7 @@ async function jobsFor(kind: ManualEmailKind, today: string, userId?: string): P
       });
       return responses.map((r) => ({
         name: displayName(r.user),
-        send: async () => deliverNow(r.user, await onThisDayParts(r.id)),
+        send: async () => deliverNow(r.user, "on-this-day", await onThisDayParts(r.id)),
       }));
     }
     case "anniversary": {
@@ -66,7 +66,7 @@ async function jobsFor(kind: ManualEmailKind, today: string, userId?: string): P
         .filter(({ joined }) => year > Number(joined.slice(0, 4)) && birthdayInYear(joined, year) === today)
         .map(({ user, joined }) => ({
           name: displayName(user),
-          send: async () => deliverNow(user, await anniversaryParts(user.id, year - Number(joined.slice(0, 4)), today)),
+          send: async () => deliverNow(user, "anniversary", await anniversaryParts(user.id, year - Number(joined.slice(0, 4)), today)),
         }));
     }
     case "wrapped": {
@@ -74,14 +74,14 @@ async function jobsFor(kind: ManualEmailKind, today: string, userId?: string): P
       const data = await buildWrapped(Number(today.slice(0, 4)), addDaysLocal(today, -1));
       return data.map((d) => ({
         name: d.name,
-        send: () => deliverNow({ email: d.email }, wrappedEmail(d, getSiteUrl(), true)),
+        send: () => deliverNow({ id: d.userId, email: d.email }, "wrapped", wrappedEmail(d, getSiteUrl(), true)),
       }));
     }
     case "welcome": {
       if (!userId) return [];
       const user = await prisma.user.findUnique({ where: { id: userId } });
       if (!user?.active) return [];
-      return [{ name: displayName(user), send: async () => deliverNow(user, await welcomeParts(displayName(user))) }];
+      return [{ name: displayName(user), send: async () => deliverNow(user, "welcome", await welcomeParts(displayName(user))) }];
     }
   }
 }

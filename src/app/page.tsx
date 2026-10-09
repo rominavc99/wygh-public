@@ -8,6 +8,7 @@ import { ResponseForm } from "./response-form";
 import { SignOutButton } from "./sign-out-button";
 import { BirthdayPrompt } from "./birthday-prompt";
 import { DEFAULT_GREETING_EMOJI } from "@/lib/user-schema";
+import { unreadNotificationCount } from "@/lib/notifications";
 
 export default async function HomePage() {
   const session = await auth();
@@ -15,7 +16,7 @@ export default async function HomePage() {
   await markSeen(session.user.id);
 
   const date = todayLocalDate();
-  const [existing, settings, todaysSend, me] = await Promise.all([
+  const [existing, settings, todaysSend, me, unread] = await Promise.all([
     prisma.response.findUnique({ where: { userId_date: { userId: session.user.id, date } } }),
     prisma.settings.upsert({ where: { id: 1 }, create: { id: 1 }, update: {} }),
     prisma.newsletterSend.findUnique({ where: { date } }),
@@ -23,6 +24,7 @@ export default async function HomePage() {
       where: { id: session.user.id },
       select: { birthday: true, birthdayPromptDismissed: true, greetingEmoji: true },
     }),
+    unreadNotificationCount(session.user.id),
   ]);
   const locked = settings.lockResponsesAfterSend && Boolean(todaysSend);
 
@@ -58,6 +60,14 @@ export default async function HomePage() {
             </Link>
             <Link href="/boletines" className="whitespace-nowrap hover:text-chrome-4">
               📬 Boletines
+            </Link>
+            <Link href="/notificaciones" className="whitespace-nowrap hover:text-chrome-4">
+              🔔 Notificaciones
+              {unread ? (
+                <span className="ml-1 rounded-full bg-accent-pink px-1.5 py-px text-[11px] font-bold text-white" aria-label={`${unread} sin leer`}>
+                  {unread > 99 ? "99+" : unread}
+                </span>
+              ) : null}
             </Link>
             <Link href="/perfil" className="whitespace-nowrap hover:text-chrome-4">
               👤 Mi perfil

@@ -8,6 +8,7 @@ import { sendCommunicationNow } from "@/lib/send-communication";
 import { notifyAdminsOfScheduledResult } from "@/lib/notify-admins";
 import { sendWeeklySummary, sendInactivityNudges } from "@/lib/send-engagement";
 import { sendDailyExtras } from "@/lib/send-extras";
+import { pruneNotifications } from "@/lib/notifications";
 import { todayLocalDate, nowLocalTime, subtractMinutesFromTime } from "@/lib/date";
 
 async function checkAndSend() {
@@ -123,6 +124,15 @@ async function checkAndSendExtras() {
     .map(([kind, count]) => `${count} de ${kind}`);
   if (summary.length) console.log(`[worker] Correos especiales: ${summary.join(", ")}.`);
 }
+
+// Notificaciones de más de un año: una vez al día, de madrugada.
+cron.schedule("30 3 * * *", () => {
+  pruneNotifications()
+    .then((count) => {
+      if (count) console.log(`[worker] Se borraron ${count} notificaciones viejas.`);
+    })
+    .catch((error) => console.error("[worker] Error al borrar notificaciones viejas:", error));
+});
 
 cron.schedule("* * * * *", () => {
   checkAndSend().catch((error) => {
