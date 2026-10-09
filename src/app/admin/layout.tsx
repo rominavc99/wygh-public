@@ -4,6 +4,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 
 const TABS = [
+  { href: "/admin/estadisticas", label: "Estadísticas", icon: "📊" },
   { href: "/admin/respuestas", label: "Respuestas", icon: "🗂️" },
   { href: "/admin/usuarios", label: "Usuarios", icon: "👥" },
   { href: "/admin/boletin", label: "Boletín", icon: "💌" },

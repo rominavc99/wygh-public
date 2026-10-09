@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
+import { WEEKDAY_NAMES } from "@/lib/weekdays";
 import { updateSettings, type SettingsFormState } from "./actions";
 
 type Settings = {
@@ -19,6 +20,14 @@ type Settings = {
   heroImageUrl: string;
   heroLinkUrl: string;
   heroLinkText: string;
+  weeklySummaryEnabled: boolean;
+  weeklySummaryDay: number;
+  weeklySummaryTime: string;
+  inactivityNudgeEnabled: boolean;
+  inactivityNudgeDays: number;
+  inactivityNudgeTime: string;
+  inactivityNudgeSubject: string;
+  inactivityNudgeTemplate: string;
 };
 
 const initialState: SettingsFormState = { status: "idle" };
@@ -159,6 +168,113 @@ export function SettingsForm({ settings }: { settings: Settings }) {
             defaultValue={settings.heroLinkText}
             placeholder="Leer más"
             className="xp-input"
+          />
+        </Field>
+      </div>
+
+      <div className="mt-2 flex flex-col gap-4 rounded-xl border border-panel-edge bg-panel-2 p-4">
+        <div>
+          <h3 className="text-base font-bold text-ink">📊 Resumen semanal</h3>
+          <p className="text-xs text-ink-faint">
+            Le llega a todo el grupo con la participación de cada quien en los 7 días anteriores.{" "}
+            <a href="/admin/estadisticas/vista-previa?correo=resumen" target="_blank" className="underline">
+              Ver vista previa
+            </a>
+          </p>
+        </div>
+
+        <label className="flex items-center gap-2 text-sm font-bold text-ink">
+          <input
+            type="checkbox"
+            name="weeklySummaryEnabled"
+            defaultChecked={settings.weeklySummaryEnabled}
+            className="h-4 w-4 accent-[var(--accent-pink)]"
+          />
+          Mandar el resumen semanal
+        </label>
+
+        <div className="flex flex-wrap gap-4">
+          <Field label="Día" error={fieldErrors.weeklySummaryDay}>
+            <select name="weeklySummaryDay" defaultValue={settings.weeklySummaryDay} className="xp-input">
+              {[1, 2, 3, 4, 5, 6, 0].map((day) => (
+                <option key={day} value={day}>
+                  {WEEKDAY_NAMES[day]}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Hora" error={fieldErrors.weeklySummaryTime}>
+            <input
+              name="weeklySummaryTime"
+              type="time"
+              defaultValue={settings.weeklySummaryTime}
+              className="xp-input"
+              required
+            />
+          </Field>
+        </div>
+      </div>
+
+      <div className="mt-2 flex flex-col gap-4 rounded-xl border border-panel-edge bg-panel-2 p-4">
+        <div>
+          <h3 className="text-base font-bold text-ink">🥪 Correo a quien no responde</h3>
+          <p className="text-xs text-ink-faint">
+            Le llega a quien lleva varios días seguidos sin responder, y se repite cada tantos días
+            mientras siga sin responder.{" "}
+            <a href="/admin/estadisticas/vista-previa?correo=inactividad" target="_blank" className="underline">
+              Ver vista previa
+            </a>
+          </p>
+        </div>
+
+        <label className="flex items-center gap-2 text-sm font-bold text-ink">
+          <input
+            type="checkbox"
+            name="inactivityNudgeEnabled"
+            defaultChecked={settings.inactivityNudgeEnabled}
+            className="h-4 w-4 accent-[var(--accent-pink)]"
+          />
+          Mandar el correo de inactividad
+        </label>
+
+        <div className="flex flex-wrap gap-4">
+          <Field label="Días seguidos sin responder" error={fieldErrors.inactivityNudgeDays}>
+            <input
+              name="inactivityNudgeDays"
+              type="number"
+              min={1}
+              max={60}
+              defaultValue={settings.inactivityNudgeDays}
+              className="xp-input w-28"
+              required
+            />
+          </Field>
+          <Field label="Hora" error={fieldErrors.inactivityNudgeTime}>
+            <input
+              name="inactivityNudgeTime"
+              type="time"
+              defaultValue={settings.inactivityNudgeTime}
+              className="xp-input"
+              required
+            />
+          </Field>
+        </div>
+
+        <Field
+          label="Título (también es el asunto)"
+          error={fieldErrors.inactivityNudgeSubject}
+          hint="Puedes usar {nombre} y {dias}."
+        >
+          <input name="inactivityNudgeSubject" defaultValue={settings.inactivityNudgeSubject} className="xp-input" required />
+        </Field>
+
+        <Field label="Mensaje" error={fieldErrors.inactivityNudgeTemplate} hint="Puedes usar {nombre} y {dias}.">
+          <textarea
+            name="inactivityNudgeTemplate"
+            defaultValue={settings.inactivityNudgeTemplate}
+            className="xp-textarea"
+            rows={3}
+            required
           />
         </Field>
       </div>

@@ -33,6 +33,14 @@ const settingsSchema = z
     heroImageUrl: optionalUrl,
     heroLinkUrl: optionalUrl,
     heroLinkText: z.string().trim().max(40).or(z.literal("")),
+    weeklySummaryEnabled: z.boolean(),
+    weeklySummaryDay: z.coerce.number().int().min(0).max(6),
+    weeklySummaryTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Usa el formato HH:MM."),
+    inactivityNudgeEnabled: z.boolean(),
+    inactivityNudgeDays: z.coerce.number().int("Escribe un número entero.").min(1, "Mínimo 1 día.").max(60, "Máximo 60 días."),
+    inactivityNudgeTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Usa el formato HH:MM."),
+    inactivityNudgeSubject: z.string().trim().min(1, "Escribe un título.").max(150),
+    inactivityNudgeTemplate: z.string().trim().min(1, "Escribe el mensaje.").max(600),
   })
   .refine((v) => !v.heroEnabled || v.heroTitle.length > 0, {
     message: "Si activas la portada, escribe un título.",
@@ -66,6 +74,14 @@ export async function updateSettings(
     heroImageUrl: formData.get("heroImageUrl"),
     heroLinkUrl: formData.get("heroLinkUrl"),
     heroLinkText: formData.get("heroLinkText"),
+    weeklySummaryEnabled: formData.get("weeklySummaryEnabled") === "on",
+    weeklySummaryDay: formData.get("weeklySummaryDay"),
+    weeklySummaryTime: formData.get("weeklySummaryTime"),
+    inactivityNudgeEnabled: formData.get("inactivityNudgeEnabled") === "on",
+    inactivityNudgeDays: formData.get("inactivityNudgeDays"),
+    inactivityNudgeTime: formData.get("inactivityNudgeTime"),
+    inactivityNudgeSubject: formData.get("inactivityNudgeSubject"),
+    inactivityNudgeTemplate: formData.get("inactivityNudgeTemplate"),
   });
 
   if (!parsed.success) {
@@ -85,5 +101,6 @@ export async function updateSettings(
 
   revalidatePath("/admin/ajustes");
   revalidatePath("/admin/boletin");
+  revalidatePath("/admin/estadisticas");
   return { status: "success" };
 }

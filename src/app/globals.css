@@ -343,3 +343,74 @@ h3 {
   font-size: 13.5px;
   color: var(--ink);
 }
+
+/* ---------- Gráficas del dashboard (/admin/estadisticas). Una sola
+   serie por gráfica, en el teal del cromo; el tooltip sale al pasar el
+   mouse o al enfocar la barra con el teclado. */
+.viz-hit {
+  position: relative;
+  outline: none;
+}
+
+.viz-bar {
+  background: var(--chrome-3);
+  border-radius: 4px 4px 0 0;
+}
+
+.viz-bar-h {
+  background: var(--chrome-3);
+  border-radius: 0 4px 4px 0;
+}
+
+.viz-hit:hover .viz-bar,
+.viz-hit:focus-visible .viz-bar,
+.viz-hit:hover .viz-bar-h,
+.viz-hit:focus-visible .viz-bar-h {
+  background: var(--chrome-4);
+}
+
+.viz-track {
+  background: var(--panel);
+}
+
+.viz-grid {
+  border-top: 1px solid var(--panel-edge);
+}
+
+.viz-tip {
+  pointer-events: none;
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  z-index: 20;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  border: 2px solid var(--nb-line);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 2px 2px 0 0 var(--nb-line);
+  padding: 4px 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--ink);
+  opacity: 0;
+  transition: opacity 80ms;
+}
+
+.viz-hit:hover .viz-tip,
+.viz-hit:focus-visible .viz-tip {
+  opacity: 1;
+}
+
+/* Las barras de las orillas abren el tooltip hacia adentro para que no
+   se salga de la ventana. */
+.viz-tip-start {
+  left: 0;
+  transform: none;
+}
+
+.viz-tip-end {
+  left: auto;
+  right: 0;
+  transform: none;
+}

@@ -64,6 +64,8 @@ src/
     birthday-newsletter.ts       # Arma el boletín de cumpleaños (foto, top 5)
     send-birthday.ts             # Envío del de cumpleaños
     send-reminder.ts, reminder-email.ts            # Recordatorio a quien no ha respondido
+    participation-stats.ts       # Métricas de participación (dashboard, resumen semanal, inactividad)
+    send-engagement.ts, engagement-email.ts        # Resumen semanal y correo de inactividad
     send-communication.ts, communication-email.ts  # Comunicaciones del admin
     notify-admins.ts, communication-result-email.ts # Aviso a admins del resultado de una programada
     notify-interaction.ts, interaction-email.ts    # Aviso de reacción/comentario a tu respuesta o comentario
@@ -185,8 +187,27 @@ Proceso PM2 aparte que cada minuto revisa:
 | Recordatorio a quien no ha respondido | 1 h antes de `sendTime` (si `reminderEnabled`) | `sendReminderIfNeeded()` | `ReminderSend.date` |
 | Boletín de cumpleaños | `Settings.birthdaySendTime` (si `birthdayEnabled`) | `sendBirthdayNewsletter()` | `BirthdayNewsletter(userId, date)` |
 | Comunicaciones programadas | cuando llega su `scheduledAt` | `sendCommunicationNow()` + aviso a admins | `Communication.status` |
+| Resumen semanal de participación | `weeklySummaryDay` a las `weeklySummaryTime` (si `weeklySummaryEnabled`) | `sendWeeklySummary()` | `WeeklySummarySend.weekStart` |
+| Correo a quien lleva N días sin responder | `inactivityNudgeTime` (si `inactivityNudgeEnabled`) | `sendInactivityNudges()` | `InactivityNudge(userId, date)` |
 
 Todo se manda solo a usuarios activos.
+
+### Participación (dashboard, resumen semanal, inactividad)
+
+`getParticipationStats()` (`src/lib/participation-stats.ts`) calcula
+todo a partir de los **días cerrados**: los días con fila en
+`NewsletterSend`, que son en los que se esperaba respuesta. El día de hoy
+no cuenta hasta que sale el boletín, un día sin boletín no se le "debe" a
+nadie, y a cada persona solo le cuentan los días desde su alta
+(`User.createdAt`). Los "días seguidos sin responder" son los días
+cerrados desde su última respuesta.
+
+- **Resumen semanal**: los 7 días anteriores al día de envío; mismo
+  contenido para todos (participación del grupo, destacados y días
+  respondidos por persona) más una línea personal.
+- **Correo de inactividad**: sale al llegar a `inactivityNudgeDays` días
+  sin responder y se repite cada otros tantos mientras siga la racha.
+  Título y mensaje se editan en Ajustes, con `{nombre}` y `{dias}`.
 
 ## El boletín diario
 
@@ -267,8 +288,13 @@ worker manda a todos los activos un boletín extra
 
 ## Panel de administración (`/admin/*`)
 
-Pestañas: Respuestas, Usuarios, Boletín, Fotos, Frases, Cumpleaños,
-Envíos, Comunicaciones, Ajustes.
+Pestañas: Estadísticas, Respuestas, Usuarios, Boletín, Fotos, Frases,
+Cumpleaños, Envíos, Comunicaciones, Ajustes.
+
+- **Estadísticas**: dashboard de participación por periodo (7/30/90
+  días o todo): participación diaria y por día de la semana, ranking de
+  quién responde más y menos, días seguidos sin responder, rachas, hora
+  típica de respuesta, reacciones/comentarios y datos curiosos.
 
 - **Usuarios**: alta/edición (nombre, correo, rol, apodo) y
   activar/desactivar. El `<select>` de rol se deshabilita en tu propia
@@ -290,7 +316,9 @@ Envíos, Comunicaciones, Ajustes.
   inmediato o programados. De los programados, los admins reciben un
   correo con el resultado.
 - **Ajustes**: nombre, lema, saludo, horarios, envío automático,
-  recordatorio, bloqueo tras el envío, remitente y portada.
+  recordatorio, bloqueo tras el envío, remitente, portada, resumen
+  semanal y correo de inactividad (con vista previa de ambos en
+  `/admin/estadisticas/vista-previa`).
 
 ## Autoservicio del usuario
 

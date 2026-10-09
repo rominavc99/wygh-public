@@ -97,6 +97,7 @@ erDiagram
     User ||--o{ Phrase : "aporta"
     User ||--o{ HeroPhoto : "aporta"
     User ||--o{ BirthdayNewsletter : "le dedican"
+    User ||--o{ InactivityNudge : "recibe"
     HeroPhoto ||--o{ DailyPick : "elegida para un día"
     Phrase ||--o{ DailyPick : "elegida para un día"
     HeroPhoto ||--o{ BirthdayNewsletter : "portada de"
@@ -171,6 +172,23 @@ erDiagram
         string date UK "una fila por día, idempotencia"
         datetime sentAt
         int recipientCount
+    }
+
+    WeeklySummarySend {
+        string weekStart PK "primer día de los 7 que cubre"
+        string weekEnd
+        datetime sentAt
+        int recipientCount
+        string status "sent | partial | failed | skipped_no_days"
+        string error "nullable"
+    }
+
+    InactivityNudge {
+        string id PK
+        string userId FK
+        string date "YYYY-MM-DD; único con userId"
+        int missedDays "días sin responder al mandarlo"
+        datetime sentAt
     }
 
     BirthdayNewsletter {
@@ -317,6 +335,11 @@ erDiagram
 - **`Communication`** son correos sueltos del admin, de inmediato o
   programados (`scheduledAt`); el worker manda los programados cuando
   llega su hora.
+- **`WeeklySummarySend`** hace idempotente el resumen semanal (uno por
+  semana, por `weekStart`). **`InactivityNudge`** guarda cada correo de
+  "llevas N días sin responder": además de evitar repetirlo el mismo día,
+  es el historial con el que se decide el siguiente (a los N, 2N, 3N…
+  días de la misma racha; ver `pendingInactivityNudges()`).
 
 ### Otros
 
