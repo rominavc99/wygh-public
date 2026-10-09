@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { magicLinkEmailHtml, magicLinkEmailText } from "@/lib/email-theme";
 import { getSmtpConfig } from "@/lib/mailer";
 import { generateLoginCode, LOGIN_CODE_MAX_AGE_SECONDS } from "@/lib/login-code";
+import { SESSION_MAX_AGE_SECONDS } from "@/lib/session-config";
 import type { Role } from "@/generated/prisma/enums";
 
 declare module "next-auth" {
@@ -43,7 +44,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   trustHost: true,
   session: {
     strategy: "database",
-    maxAge: 90 * 24 * 60 * 60, // 90 días
+    maxAge: SESSION_MAX_AGE_SECONDS,
   },
   providers: [
     Nodemailer({

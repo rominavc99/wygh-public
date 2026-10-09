@@ -33,6 +33,8 @@ model User {
   // Emoji que sale junto al "Hola, {nombre}" de la página principal. Lo
   // elige cada quien en /perfil; null = el de siempre (🐧, ver DEFAULT_GREETING_EMOJI).
   greetingEmoji String?
+  /// Última vez que abrió el sitio con sesión (ver src/lib/last-seen.ts).
+  lastSeenAt    DateTime?
 
   responses  Response[]
   accounts   Account[]
@@ -50,6 +52,7 @@ model User {
   // Boletines de cumpleaños dedicados a esta persona.
   birthdayNewsletters BirthdayNewsletter[]
   inactivityNudges InactivityNudge[]
+  engagementEmails EngagementEmail[]
 }
 
 // Reacción de un usuario a la respuesta de alguien en /boletines. `emoji`
@@ -228,6 +231,29 @@ model Settings {
   inactivityNudgeTime     String  @default("12:00")
   inactivityNudgeSubject  String  @default("¿Acaso eres demasiado importante para nosotros?")
   inactivityNudgeTemplate String  @default("Tienes {dias} días sin enviar una respuesta al newsletter de los importantes. Eres un sándwich remojado 🥪")
+
+  // Correos especiales (src/lib/send-extras.ts): salen a extrasEmailTime,
+  // salvo la bienvenida, que sale al dar de alta a alguien.
+  extrasEmailTime     String  @default("11:00")
+  streakEmailEnabled  Boolean @default(true)
+  onThisDayEnabled    Boolean @default(true)
+  anniversaryEnabled  Boolean @default(true)
+  wrappedEnabled      Boolean @default(true)
+  welcomeEmailEnabled Boolean @default(true)
+}
+
+/// Correo especial mandado a alguien (racha, "hace un año", aniversario,
+/// resumen anual, bienvenida). kind + key lo hacen idempotente: p. ej.
+/// kind "streak" con key "30:2026-10-08", o kind "wrapped" con key "2026".
+model EngagementEmail {
+  id     String   @id @default(cuid())
+  userId String
+  user   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind   String
+  key    String
+  sentAt DateTime @default(now())
+
+  @@unique([userId, kind, key])
 }
 
 /// Un resumen semanal enviado; weekStart es el primer día ("YYYY-MM-DD")

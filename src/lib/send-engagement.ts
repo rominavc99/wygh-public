@@ -3,26 +3,27 @@ import { getMailer, getFromAddress } from "@/lib/mailer";
 import { getSiteUrl } from "@/lib/site-url";
 import { displayName } from "@/lib/display-name";
 import { addDaysLocal } from "@/lib/date";
-import { getParticipationStats, type UserStats } from "@/lib/participation-stats";
-import {
-  fillNudgeTemplate,
-  inactivityNudgeEmailHtml,
-  inactivityNudgeEmailText,
-  weeklySummaryEmailHtml,
-  weeklySummaryEmailText,
-  type WeeklyHighlight,
-  type WeeklySummaryContent,
-} from "@/lib/engagement-email";
+import { getParticipationStats } from "@/lib/participation-stats";
+import { fillNudgeTemplate, inactivityNudgeEmailHtml, inactivityNudgeEmailText } from "@/lib/engagement-email";
+import { buildWeeklyReport } from "@/lib/weekly-report";
+import { weeklyReportEmailHtml, weeklyReportEmailText } from "@/lib/weekly-report-email";
 
 type SettingsRow = Awaited<ReturnType<typeof prisma.settings.upsert>>;
 
-function fromAddress(settings: SettingsRow): string {
+export function fromAddress(settings: SettingsRow): string {
   return settings.fromName
     ? `${settings.fromName} <${settings.fromEmail || getFromAddress().replace(/.*<|>/g, "")}>`
     : getFromAddress();
 }
 
-async function sendOne(message: { to: string; from: string; subject: string; text: string; html: string }) {
+export async function sendOne(message: {
+  to: string;
+  from: string;
+  subject: string;
+  text: string;
+  html: string;
+  attachments?: { filename: string; content: Buffer; contentType: string; cid: string }[];
+}) {
   try {
     const result = await getMailer().sendMail(message);
     const rejected = (result.rejected ?? []).concat(result.pending ?? []).filter(Boolean);
@@ -33,69 +34,8 @@ async function sendOne(message: { to: string; from: string; subject: string; tex
   }
 }
 
-function joinNames(names: string[]): string {
-  if (names.length <= 1) return names.join("");
-  return `${names.slice(0, -1).join(", ")} y ${names[names.length - 1]}`;
-}
-
-/** Quién(es) tienen el valor más alto; nadie si el máximo no llega a `min`. */
-function leaders(users: UserStats[], value: (u: UserStats) => number, min = 1): { names: string; top: number } | null {
-  const top = Math.max(0, ...users.map(value));
-  if (top < min) return null;
-  const names = users.filter((u) => value(u) === top).map((u) => u.name);
-  // Si "empatan" casi todos, el dato no dice nada.
-  if (names.length > 3) return null;
-  return { names: joinNames(names), top };
-}
-
-function longDate(date: string): string {
-  const [y, m, d] = date.split("-").map(Number);
-  return new Date(y, m - 1, d).toLocaleDateString("es-MX", { day: "numeric", month: "long" });
-}
-
 // ---------------------------------------------------------------------------
 // Resumen semanal
-
-/** Contenido del resumen de los 7 días que terminan en `weekEnd` (inclusive). */
-export async function buildWeeklySummary(weekEnd: string): Promise<WeeklySummaryContent & { weekStart: string; days: number }> {
-  const weekStart = addDaysLocal(weekEnd, -6);
-  const [stats, settings] = await Promise.all([
-    getParticipationStats({ from: weekStart, to: weekEnd }),
-    prisma.settings.upsert({ where: { id: 1 }, create: { id: 1 }, update: {} }),
-  ]);
-
-  const users = stats.users.filter((u) => u.eligibleDays > 0);
-  const ranking = [...users].sort(
-    (a, b) => b.rate! - a.rate! || b.responses - a.responses || a.name.localeCompare(b.name)
-  );
-
-  const highlights: WeeklyHighlight[] = [];
-  const constant = leaders(users, (u) => (u.eligibleDays === stats.days.length ? u.responses : 0));
-  if (constant) highlights.push({ icon: "🏆", label: "Más constante", text: `${constant.names} (${constant.top} de ${stats.days.length} días)` });
-  const streak = leaders(users, (u) => u.longestStreak, 2);
-  if (streak) highlights.push({ icon: "🔥", label: "Racha más larga", text: `${streak.names} (${streak.top} días seguidos)` });
-  const loved = leaders(users, (u) => u.reactionsReceived);
-  if (loved) highlights.push({ icon: "❤️", label: "Más reacciones recibidas", text: `${loved.names} (${loved.top})` });
-  const chatty = leaders(users, (u) => u.commentsGiven);
-  if (chatty) highlights.push({ icon: "💬", label: "Más comentarios", text: `${chatty.names} (${chatty.top})` });
-  const photos = leaders(users, (u) => u.photos);
-  if (photos) highlights.push({ icon: "📸", label: "Más fotos", text: `${photos.names} (${photos.top})` });
-  const timed = users.filter((u) => u.typicalTime).sort((a, b) => a.typicalTime!.localeCompare(b.typicalTime!));
-  if (timed.length >= 2) {
-    highlights.push({ icon: "🐓", label: "Responde más temprano", text: `${timed[0].name} (como a las ${timed[0].typicalTime})` });
-  }
-
-  return {
-    weekStart,
-    days: stats.days.length,
-    newsletterName: settings.newsletterName,
-    periodLabel: `del ${longDate(weekStart)} al ${longDate(weekEnd)}`,
-    groupResponses: stats.totals.responses,
-    groupEligible: stats.totals.eligible,
-    ranking,
-    highlights,
-  };
-}
 
 export type WeeklySummaryResult = {
   status: "sent" | "partial" | "failed" | "already_sent" | "skipped_no_days";
@@ -103,8 +43,9 @@ export type WeeklySummaryResult = {
 };
 
 /**
- * Manda a todos los activos el resumen de los 7 días anteriores a `today`.
- * Idempotente por semana (WeeklySummarySend).
+ * Manda el resumen de los 7 días anteriores a `today`: la versión de
+ * admins a los admins y la de miembros al resto. Idempotente por semana
+ * (WeeklySummarySend).
  */
 export async function sendWeeklySummary(today: string): Promise<WeeklySummaryResult> {
   const weekEnd = addDaysLocal(today, -1);
@@ -112,8 +53,8 @@ export async function sendWeeklySummary(today: string): Promise<WeeklySummaryRes
   const existing = await prisma.weeklySummarySend.findUnique({ where: { weekStart } });
   if (existing) return { status: "already_sent", recipientCount: existing.recipientCount };
 
-  const content = await buildWeeklySummary(weekEnd);
-  if (content.days === 0) {
+  const report = await buildWeeklyReport(weekEnd);
+  if (report.days === 0) {
     await prisma.weeklySummarySend.create({
       data: { weekStart, weekEnd, recipientCount: 0, status: "skipped_no_days" },
     });
@@ -129,13 +70,14 @@ export async function sendWeeklySummary(today: string): Promise<WeeklySummaryRes
 
   const results = await Promise.all(
     recipients.map((user) => {
-      const args = { name: displayName(user), userId: user.id, content, siteUrl };
+      const isAdmin = user.role === "ADMIN";
+      const args = { name: displayName(user), userId: user.id, report, siteUrl, isAdmin };
       return sendOne({
         to: user.email,
         from,
-        subject: `📊 Resumen semanal — ${settings.newsletterName}`,
-        text: weeklySummaryEmailText(args),
-        html: weeklySummaryEmailHtml(args),
+        subject: `📊 Resumen semanal${isAdmin ? " (admin)" : ""} — ${settings.newsletterName}`,
+        text: weeklyReportEmailText(args),
+        html: weeklyReportEmailHtml(args),
       });
     })
   );

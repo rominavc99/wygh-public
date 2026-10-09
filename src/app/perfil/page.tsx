@@ -1,12 +1,14 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
+import { markSeen } from "@/lib/last-seen";
 import { prisma } from "@/lib/prisma";
 import { ProfileForm } from "./profile-form";
 
 export default async function PerfilPage() {
   const session = await auth();
   if (!session?.user) redirect("/login");
+  await markSeen(session.user.id);
 
   const user = await prisma.user.findUniqueOrThrow({
     where: { id: session.user.id },

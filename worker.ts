@@ -7,6 +7,7 @@ import { sendBirthdayNewsletter, birthdayPeopleOn } from "@/lib/send-birthday";
 import { sendCommunicationNow } from "@/lib/send-communication";
 import { notifyAdminsOfScheduledResult } from "@/lib/notify-admins";
 import { sendWeeklySummary, sendInactivityNudges } from "@/lib/send-engagement";
+import { sendDailyExtras } from "@/lib/send-extras";
 import { todayLocalDate, nowLocalTime, subtractMinutesFromTime } from "@/lib/date";
 
 async function checkAndSend() {
@@ -111,6 +112,18 @@ async function checkAndSendInactivityNudges() {
   }
 }
 
+async function checkAndSendExtras() {
+  const settings = await prisma.settings.upsert({ where: { id: 1 }, create: { id: 1 }, update: {} });
+
+  if (nowLocalTime() !== settings.extrasEmailTime) return;
+
+  const result = await sendDailyExtras(todayLocalDate());
+  const summary = Object.entries(result)
+    .filter(([, count]) => count > 0)
+    .map(([kind, count]) => `${count} de ${kind}`);
+  if (summary.length) console.log(`[worker] Correos especiales: ${summary.join(", ")}.`);
+}
+
 cron.schedule("* * * * *", () => {
   checkAndSend().catch((error) => {
     console.error("[worker] Error en el chequeo del cron:", error);
@@ -130,6 +143,9 @@ cron.schedule("* * * * *", () => {
   checkAndSendInactivityNudges().catch((error) => {
     console.error("[worker] Error al mandar correos de inactividad:", error);
   });
+  checkAndSendExtras().catch((error) => {
+    console.error("[worker] Error al mandar correos especiales:", error);
+  });
 });
 
-console.log("[worker] Worker de boletín iniciado. Revisando cada minuto la hora de envío, de recordatorio, de cumpleaños, del resumen semanal y de los correos de inactividad.");
+console.log("[worker] Worker de boletín iniciado. Revisando cada minuto la hora de envío, de recordatorio, de cumpleaños, del resumen semanal, de los correos de inactividad y de los especiales.");

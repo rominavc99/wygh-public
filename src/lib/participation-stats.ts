@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { displayName } from "@/lib/display-name";
-import { localDateOf, weekdayOf } from "@/lib/date";
+import { daysBetween, localDateOf, todayLocalDate, weekdayOf } from "@/lib/date";
+import { lastVisits } from "@/lib/last-seen";
 
 /**
  * Métricas de participación para el dashboard de /admin/estadisticas, el
@@ -25,6 +26,10 @@ export type UserStats = {
   /** Días cerrados seguidos sin responder hasta hoy (no depende del periodo). */
   missedStreak: number;
   lastResponseDate: string | null;
+  /** Último día en que abrió el sitio (ver lastVisits), o null si no hay rastro. */
+  lastVisitDate: string | null;
+  /** Días calendario desde su última visita hasta hoy; sin rastro = desde su alta. */
+  daysSinceVisit: number;
   /** Días cerrados seguidos respondiendo, contando hacia atrás desde el último del periodo. */
   currentStreak: number;
   longestStreak: number;
@@ -100,6 +105,8 @@ export async function getParticipationStats({
     }),
   ]);
 
+  const visits = await lastVisits(users.map((u) => u.id));
+  const today = todayLocalDate();
   const closedDays = allSends.map((s) => s.date);
   const days = closedDays.filter((d) => (!from || d >= from) && d <= to);
   const daySet = new Set(days);
@@ -157,6 +164,9 @@ export async function getParticipationStats({
       missedStreak++;
     }
 
+    const visit = visits.get(user.id);
+    const lastVisitDate = visit ? localDateOf(visit) : null;
+
     const minutes = (minutesBy.get(user.id) ?? []).sort((a, b) => a - b);
     const median = minutes.length ? minutes[Math.floor((minutes.length - 1) / 2)] : null;
 
@@ -170,6 +180,8 @@ export async function getParticipationStats({
       rate: myDays.length ? responded.size / myDays.length : null,
       missedStreak,
       lastResponseDate,
+      lastVisitDate,
+      daysSinceVisit: daysBetween(lastVisitDate ?? joined, today),
       currentStreak,
       longestStreak,
       typicalTime:

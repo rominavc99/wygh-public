@@ -98,6 +98,7 @@ erDiagram
     User ||--o{ HeroPhoto : "aporta"
     User ||--o{ BirthdayNewsletter : "le dedican"
     User ||--o{ InactivityNudge : "recibe"
+    User ||--o{ EngagementEmail : "recibe"
     HeroPhoto ||--o{ DailyPick : "elegida para un día"
     Phrase ||--o{ DailyPick : "elegida para un día"
     HeroPhoto ||--o{ BirthdayNewsletter : "portada de"
@@ -188,6 +189,14 @@ erDiagram
         string userId FK
         string date "YYYY-MM-DD; único con userId"
         int missedDays "días sin responder al mandarlo"
+        datetime sentAt
+    }
+
+    EngagementEmail {
+        string id PK
+        string userId FK
+        string kind "streak | on-this-day | anniversary | wrapped | welcome"
+        string key "único con userId + kind; p. ej. 30:2026-10-08 o 2026"
         datetime sentAt
     }
 
@@ -340,6 +349,11 @@ erDiagram
   "llevas N días sin responder": además de evitar repetirlo el mismo día,
   es el historial con el que se decide el siguiente (a los N, 2N, 3N…
   días de la misma racha; ver `pendingInactivityNudges()`).
+- **`EngagementEmail`** hace idempotentes los correos especiales (racha,
+  "hace un año", aniversario, resumen anual, bienvenida).
+- **`User.lastSeenAt`**: última vez que la persona abrió el sitio con
+  sesión; ver `src/lib/last-seen.ts` para cómo se combina con sesiones y
+  actividad.
 
 ### Otros
 

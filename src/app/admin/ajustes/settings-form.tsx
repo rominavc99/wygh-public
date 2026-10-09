@@ -28,7 +28,21 @@ type Settings = {
   inactivityNudgeTime: string;
   inactivityNudgeSubject: string;
   inactivityNudgeTemplate: string;
+  extrasEmailTime: string;
+  streakEmailEnabled: boolean;
+  onThisDayEnabled: boolean;
+  anniversaryEnabled: boolean;
+  wrappedEnabled: boolean;
+  welcomeEmailEnabled: boolean;
 };
+
+const EXTRA_EMAILS = [
+  { name: "streakEmailEnabled", preview: "racha", label: "🔥 Felicitación por racha", hint: "A los 7, 30, 50, 100, 200 y 365 días seguidos respondiendo." },
+  { name: "onThisDayEnabled", preview: "hace-un-ano", label: "📅 Hace un año…", hint: "Le recuerda a cada quien lo que respondió ese mismo día el año pasado." },
+  { name: "anniversaryEnabled", preview: "aniversario", label: "🎂 Aniversario en el grupo", hint: "Cada año desde que dieron de alta a la persona." },
+  { name: "wrappedEnabled", preview: "anual", label: "🎁 Resumen anual", hint: "El 1 de enero, el año anterior de cada quien." },
+  { name: "welcomeEmailEnabled", preview: "bienvenida", label: "👋 Bienvenida", hint: "Al dar de alta a alguien en Usuarios (sale en ese momento)." },
+] as const;
 
 const initialState: SettingsFormState = { status: "idle" };
 
@@ -176,9 +190,14 @@ export function SettingsForm({ settings }: { settings: Settings }) {
         <div>
           <h3 className="text-base font-bold text-ink">📊 Resumen semanal</h3>
           <p className="text-xs text-ink-faint">
-            Le llega a todo el grupo con la participación de cada quien en los 7 días anteriores.{" "}
+            Le llega a todo el grupo con la participación de cada quien en los 7 días anteriores. Los
+            admins reciben una versión más completa.{" "}
             <a href="/admin/estadisticas/vista-previa?correo=resumen" target="_blank" className="underline">
-              Ver vista previa
+              Vista previa
+            </a>{" "}
+            ·{" "}
+            <a href="/admin/estadisticas/vista-previa?correo=resumen-admin" target="_blank" className="underline">
+              Versión admin
             </a>
           </p>
         </div>
@@ -222,7 +241,7 @@ export function SettingsForm({ settings }: { settings: Settings }) {
             Le llega a quien lleva varios días seguidos sin responder, y se repite cada tantos días
             mientras siga sin responder.{" "}
             <a href="/admin/estadisticas/vista-previa?correo=inactividad" target="_blank" className="underline">
-              Ver vista previa
+              Vista previa
             </a>
           </p>
         </div>
@@ -277,6 +296,37 @@ export function SettingsForm({ settings }: { settings: Settings }) {
             required
           />
         </Field>
+      </div>
+
+      <div className="mt-2 flex flex-col gap-4 rounded-xl border border-panel-edge bg-panel-2 p-4">
+        <div>
+          <h3 className="text-base font-bold text-ink">✨ Correos especiales</h3>
+          <p className="text-xs text-ink-faint">Salen a la hora de abajo, salvo la bienvenida.</p>
+        </div>
+
+        <Field label="Hora" error={fieldErrors.extrasEmailTime}>
+          <input name="extrasEmailTime" type="time" defaultValue={settings.extrasEmailTime} className="xp-input w-fit" required />
+        </Field>
+
+        {EXTRA_EMAILS.map((email) => (
+          <div key={email.name}>
+            <label className="flex items-center gap-2 text-sm font-bold text-ink">
+              <input
+                type="checkbox"
+                name={email.name}
+                defaultChecked={settings[email.name]}
+                className="h-4 w-4 accent-[var(--accent-pink)]"
+              />
+              {email.label}
+            </label>
+            <p className="ml-6 text-xs text-ink-faint">
+              {email.hint}{" "}
+              <a href={`/admin/estadisticas/vista-previa?correo=${email.preview}`} target="_blank" className="underline">
+                Vista previa
+              </a>
+            </p>
+          </div>
+        ))}
       </div>
 
       {state.status === "error" && state.message ? (

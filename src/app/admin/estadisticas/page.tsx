@@ -53,6 +53,9 @@ export default async function EstadisticasPage({
   const missing = [...stats.users]
     .filter((u) => u.missedStreak > 0)
     .sort((a, b) => b.missedStreak - a.missedStreak || a.name.localeCompare(b.name));
+  const absent = [...stats.users]
+    .filter((u) => u.daysSinceVisit >= settings.inactivityNudgeDays)
+    .sort((a, b) => b.daysSinceVisit - a.daysSinceVisit || a.name.localeCompare(b.name));
   const byResponses = [...stats.users].sort((a, b) => b.responses - a.responses || a.name.localeCompare(b.name));
   const avgPerDay = stats.days.length ? totals.responses / stats.days.length : null;
 
@@ -150,6 +153,23 @@ export default async function EstadisticasPage({
                       {u.missedStreak >= settings.inactivityNudgeDays ? "🥪 " : ""}
                       {plural(u.missedStreak, "día", "días")}
                     </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Section>
+
+          <Section
+            title="Sin entrar al sitio"
+            hint={`${settings.inactivityNudgeDays} días o más sin abrir la página (ni para leer, responder o reaccionar). Leer solo el correo no cuenta.`}
+          >
+            {absent.length === 0 ? (
+              <p className="text-sm text-ink-soft">✨ Todo el mundo ha entrado en los últimos días.</p>
+            ) : (
+              <ul className="flex flex-wrap gap-2">
+                {absent.map((u) => (
+                  <li key={u.id} className="chip chip-neutral" title={u.lastVisitDate ? `Última visita: ${shortDate(u.lastVisitDate)}` : "Sin visitas registradas"}>
+                    {u.name} · {plural(u.daysSinceVisit, "día", "días")}
                   </li>
                 ))}
               </ul>
@@ -307,6 +327,7 @@ function UserTable({ users }: { users: UserStats[] }) {
     { label: "Mejor", title: "Mejor racha del periodo", value: (u) => u.longestStreak },
     { label: "Sin resp.", title: "Días seguidos sin responder hasta hoy", value: (u) => u.missedStreak },
     { label: "Hora", title: "Hora típica a la que responde", value: (u) => u.typicalTime ?? "—" },
+    { label: "Visita", title: "Última vez que entró al sitio", value: (u) => (u.lastVisitDate ? shortDate(u.lastVisitDate) : "—") },
     { label: "❤️ dadas", title: "Reacciones que dio", value: (u) => u.reactionsGiven },
     { label: "❤️ recib.", title: "Reacciones que recibió", value: (u) => u.reactionsReceived },
     { label: "💬 dados", title: "Comentarios que hizo", value: (u) => u.commentsGiven },
@@ -315,7 +336,7 @@ function UserTable({ users }: { users: UserStats[] }) {
   ];
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[44rem] text-left text-xs">
+      <table className="w-full min-w-[48rem] text-left text-xs">
         <thead className="text-ink-soft">
           <tr>
             <th className="py-1.5 pr-2">Persona</th>

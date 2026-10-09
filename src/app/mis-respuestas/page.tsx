@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
+import { markSeen } from "@/lib/last-seen";
 import { prisma } from "@/lib/prisma";
 import { formatLocalDate, todayLocalDate } from "@/lib/date";
 import { avatarGradient } from "@/lib/avatar";
@@ -8,6 +9,7 @@ import { avatarGradient } from "@/lib/avatar";
 export default async function MisRespuestasPage() {
   const session = await auth();
   if (!session?.user) redirect("/login");
+  await markSeen(session.user.id);
 
   const responses = await prisma.response.findMany({
     where: { userId: session.user.id },

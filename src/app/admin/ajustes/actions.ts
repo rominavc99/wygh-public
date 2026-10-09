@@ -41,6 +41,12 @@ const settingsSchema = z
     inactivityNudgeTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Usa el formato HH:MM."),
     inactivityNudgeSubject: z.string().trim().min(1, "Escribe un título.").max(150),
     inactivityNudgeTemplate: z.string().trim().min(1, "Escribe el mensaje.").max(600),
+    extrasEmailTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Usa el formato HH:MM."),
+    streakEmailEnabled: z.boolean(),
+    onThisDayEnabled: z.boolean(),
+    anniversaryEnabled: z.boolean(),
+    wrappedEnabled: z.boolean(),
+    welcomeEmailEnabled: z.boolean(),
   })
   .refine((v) => !v.heroEnabled || v.heroTitle.length > 0, {
     message: "Si activas la portada, escribe un título.",
@@ -82,6 +88,12 @@ export async function updateSettings(
     inactivityNudgeTime: formData.get("inactivityNudgeTime"),
     inactivityNudgeSubject: formData.get("inactivityNudgeSubject"),
     inactivityNudgeTemplate: formData.get("inactivityNudgeTemplate"),
+    extrasEmailTime: formData.get("extrasEmailTime"),
+    streakEmailEnabled: formData.get("streakEmailEnabled") === "on",
+    onThisDayEnabled: formData.get("onThisDayEnabled") === "on",
+    anniversaryEnabled: formData.get("anniversaryEnabled") === "on",
+    wrappedEnabled: formData.get("wrappedEnabled") === "on",
+    welcomeEmailEnabled: formData.get("welcomeEmailEnabled") === "on",
   });
 
   if (!parsed.success) {

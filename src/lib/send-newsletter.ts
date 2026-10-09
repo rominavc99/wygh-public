@@ -53,7 +53,7 @@ async function emailSizedPhoto(filePath: string): Promise<{ content: Buffer; con
  * NewsletterSend.contentHtml (para la vista previa en el navegador) se
  * queda con las URLs normales.
  */
-async function embedResponsePhotosAsAttachments(html: string): Promise<{
+export async function embedResponsePhotosAsAttachments(html: string): Promise<{
   html: string;
   attachments: InlineAttachment[];
 }> {
