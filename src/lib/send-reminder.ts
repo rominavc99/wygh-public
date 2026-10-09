@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { getMailer, getFromAddress } from "@/lib/mailer";
 import { reminderEmailHtml, reminderEmailText } from "@/lib/reminder-email";
 import { getSiteUrl } from "@/lib/site-url";
+import { recordNotification } from "@/lib/notifications";
 
 export type ReminderResult = {
   status: "sent" | "skipped_disabled" | "skipped_none_pending" | "already_sent";
@@ -41,25 +42,14 @@ export async function sendReminderIfNeeded(date: string): Promise<ReminderResult
   const formUrl = getSiteUrl();
 
   await Promise.allSettled(
-    pending.map((user) =>
-      transport.sendMail({
-        to: user.email,
-        from,
-        subject: `⏰ Responde antes de las ${settings.sendTime} — ${settings.newsletterName}`,
-        text: reminderEmailText({
-          name: user.name,
-          sendTime: settings.sendTime,
-          newsletterName: settings.newsletterName,
-          formUrl,
-        }),
-        html: reminderEmailHtml({
-          name: user.name,
-          sendTime: settings.sendTime,
-          newsletterName: settings.newsletterName,
-          formUrl,
-        }),
-      })
-    )
+    pending.map(async (user) => {
+      const args = { name: user.name, sendTime: settings.sendTime, newsletterName: settings.newsletterName, formUrl };
+      const subject = `⏰ Responde antes de las ${settings.sendTime} — ${settings.newsletterName}`;
+      const text = reminderEmailText(args);
+      const html = reminderEmailHtml(args);
+      await transport.sendMail({ to: user.email, from, subject, text, html });
+      await recordNotification({ userId: user.id, kind: "reminder", title: subject, text, html });
+    })
   );
 
   await prisma.reminderSend.create({ data: { date, recipientCount: pending.length } });

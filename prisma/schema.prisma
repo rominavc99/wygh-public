@@ -53,6 +53,7 @@ model User {
   birthdayNewsletters BirthdayNewsletter[]
   inactivityNudges InactivityNudge[]
   engagementEmails EngagementEmail[]
+  notifications    Notification[]
 }
 
 // Reacción de un usuario a la respuesta de alguien en /boletines. `emoji`
@@ -456,4 +457,22 @@ model VerificationToken {
   expires    DateTime
 
   @@unique([identifier, token])
+}
+
+/// Copia en el sitio de cada correo que se le mandó a alguien (ver
+/// src/lib/notifications.ts), para verlo en /notificaciones. html es el
+/// correo tal cual; si está vacío, abrir la notificación lleva a url.
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind      String
+  title     String
+  preview   String    @default("")
+  html      String    @default("")
+  url       String    @default("")
+  createdAt DateTime  @default(now())
+  readAt    DateTime?
+
+  @@index([userId, createdAt])
 }

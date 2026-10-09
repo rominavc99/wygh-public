@@ -2,9 +2,11 @@ import fs from "node:fs";
 import path from "node:path";
 import sharp from "sharp";
 import { prisma } from "@/lib/prisma";
+import { recordNotification } from "@/lib/notifications";
 import { getMailer, getFromAddress } from "@/lib/mailer";
 import { buildNewsletter, personalizeGreeting } from "@/lib/newsletter";
 import { diskPathFor } from "@/lib/response-photos";
+import { formatLocalDate } from "@/lib/date";
 
 export type SendResult = {
   status: "sent" | "partial" | "failed" | "already_sent";
@@ -91,11 +93,14 @@ export async function deliverToActiveUsers({
   subject,
   greetingTemplate,
   settings,
+  notification,
 }: {
   content: { html: string; text: string };
   subject: string;
   greetingTemplate: string;
   settings: { fromName: string; fromEmail: string };
+  /** Notificación en el sitio para cada quien al que le llegó; lleva a /boletines. */
+  notification: { kind: string; title: string; url: string; text: string };
 }): Promise<{ recipients: { email: string }[]; failures: string[] }> {
   const recipients = await prisma.user.findMany({ where: { active: true } });
 
@@ -123,6 +128,7 @@ export async function deliverToActiveUsers({
         });
         const rejected = (result.rejected ?? []).concat(result.pending ?? []).filter(Boolean);
         if (rejected.length) failures.push(recipient.email);
+        else await recordNotification({ userId: recipient.id, ...notification });
       } catch {
         failures.push(recipient.email);
       }
@@ -156,6 +162,12 @@ export async function sendDailyNewsletter(date: string, options?: { force?: bool
     subject: `${settings.newsletterName} — ${date}`,
     greetingTemplate: settings.greetingTemplate,
     settings,
+    notification: {
+      kind: "newsletter",
+      title: `📰 Salió el boletín del ${formatLocalDate(date)}`,
+      url: `/boletines?date=${date}`,
+      text: `${content.responses.length} ${content.responses.length === 1 ? "respuesta" : "respuestas"}. Toca para leer lo que hará el grupo.`,
+    },
   });
 
   const status: SendResult["status"] =

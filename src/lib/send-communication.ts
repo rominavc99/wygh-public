@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { getMailer, getFromAddress } from "@/lib/mailer";
 import { displayName } from "@/lib/display-name";
 import { communicationEmailHtml, communicationEmailText } from "@/lib/communication-email";
+import { recordNotification } from "@/lib/notifications";
 
 /**
  * Manda un Communication ya creado (audiencia y contenido ya resueltos en
@@ -32,19 +33,16 @@ export async function sendCommunicationNow(id: string): Promise<void> {
   await Promise.all(
     recipients.map(async (recipient) => {
       try {
-        const result = await transport.sendMail({
-          to: recipient.email,
-          from,
+        const text = communicationEmailText({ name: displayName(recipient), bodyText: comm.bodyText });
+        const html = communicationEmailHtml({
+          name: displayName(recipient),
           subject: comm.subject,
-          text: communicationEmailText({ name: displayName(recipient), bodyText: comm.bodyText }),
-          html: communicationEmailHtml({
-            name: displayName(recipient),
-            subject: comm.subject,
-            bodyHtml: comm.bodyHtml,
-          }),
+          bodyHtml: comm.bodyHtml,
         });
+        const result = await transport.sendMail({ to: recipient.email, from, subject: comm.subject, text, html });
         const rejected = (result.rejected ?? []).concat(result.pending ?? []).filter(Boolean);
         if (rejected.length) failures.push(recipient.email);
+        else await recordNotification({ userId: recipient.id, kind: "communication", title: `📣 ${comm.subject}`, text, html });
       } catch {
         failures.push(recipient.email);
       }

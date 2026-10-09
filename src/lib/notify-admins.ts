@@ -3,6 +3,7 @@ import { getMailer, getFromAddress } from "@/lib/mailer";
 import { displayName } from "@/lib/display-name";
 import { getSiteUrl } from "@/lib/site-url";
 import { communicationResultEmailHtml, communicationResultEmailText } from "@/lib/communication-result-email";
+import { recordNotification } from "@/lib/notifications";
 
 /**
  * Avisa a todos los admins activos cómo salió una comunicación PROGRAMADA
@@ -31,29 +32,20 @@ export async function notifyAdminsOfScheduledResult(communicationId: string): Pr
       status === "sent" ? `✅ Comunicación enviada: ${comm.subject}` : `⚠️ Problema al enviar: ${comm.subject}`;
 
     await Promise.allSettled(
-      admins.map((admin) =>
-        getMailer().sendMail({
-          to: admin.email,
-          from,
-          subject: subjectLine,
-          text: communicationResultEmailText({
-            name: displayName(admin),
-            subject: comm.subject,
-            status,
-            recipientCount: comm.recipientCount,
-            error: comm.error,
-            viewUrl,
-          }),
-          html: communicationResultEmailHtml({
-            name: displayName(admin),
-            subject: comm.subject,
-            status,
-            recipientCount: comm.recipientCount,
-            error: comm.error,
-            viewUrl,
-          }),
-        })
-      )
+      admins.map(async (admin) => {
+        const args = {
+          name: displayName(admin),
+          subject: comm.subject,
+          status,
+          recipientCount: comm.recipientCount,
+          error: comm.error,
+          viewUrl,
+        };
+        const text = communicationResultEmailText(args);
+        const html = communicationResultEmailHtml(args);
+        await getMailer().sendMail({ to: admin.email, from, subject: subjectLine, text, html });
+        await recordNotification({ userId: admin.id, kind: "admin", title: subjectLine, text, html });
+      })
     );
   } catch (error) {
     console.error("No se pudo notificar a los admins del resultado de la comunicación:", error);

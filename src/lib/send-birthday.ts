@@ -35,6 +35,12 @@ export async function sendBirthdayNewsletter(
     subject: `${settings.newsletterName} — 🎂 Feliz cumpleaños, ${content.celebrantName}`,
     greetingTemplate: settings.birthdayGreetingTemplate,
     settings,
+    notification: {
+      kind: "birthday",
+      title: `🎂 Boletín de cumpleaños de ${content.celebrantName}`,
+      url: `/boletines?date=${date}&cumple=${userId}`,
+      text: `Hoy celebramos a ${content.celebrantName} 🎉 Toca para ver su boletín.`,
+    },
   });
 
   const status: BirthdaySendResult["status"] =

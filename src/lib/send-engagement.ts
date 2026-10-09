@@ -6,6 +6,7 @@ import { addDaysLocal } from "@/lib/date";
 import { getParticipationStats } from "@/lib/participation-stats";
 import { fillNudgeTemplate, inactivityNudgeEmailHtml, inactivityNudgeEmailText } from "@/lib/engagement-email";
 import { buildWeeklyReport, type WeeklyReport } from "@/lib/weekly-report";
+import { recordNotification } from "@/lib/notifications";
 import { weeklyReportEmailHtml, weeklyReportEmailText } from "@/lib/weekly-report-email";
 
 type SettingsRow = Awaited<ReturnType<typeof prisma.settings.upsert>>;
@@ -49,13 +50,14 @@ export async function sendWeeklyReportTo(user: Recipient, report: WeeklyReport):
   const settings = await prisma.settings.upsert({ where: { id: 1 }, create: { id: 1 }, update: {} });
   const isAdmin = user.role === "ADMIN";
   const args = { name: displayName(user), userId: user.id, report, siteUrl: getSiteUrl(), isAdmin };
-  return sendOne({
-    to: user.email,
-    from: fromAddress(settings),
+  const message = {
     subject: `📊 Resumen semanal${isAdmin ? " (admin)" : ""} — ${settings.newsletterName}`,
     text: weeklyReportEmailText(args),
     html: weeklyReportEmailHtml(args),
-  });
+  };
+  const ok = await sendOne({ to: user.email, from: fromAddress(settings), ...message });
+  if (ok) await recordNotification({ userId: user.id, kind: "weekly", title: message.subject, text: message.text, html: message.html });
+  return ok;
 }
 
 /**
@@ -142,16 +144,14 @@ export async function sendInactivityNudges(today: string): Promise<{ sent: numbe
 }
 
 /** Manda el correo de inactividad a una persona, con los textos guardados en Ajustes. */
-export async function sendNudgeTo(user: { name: string; email: string; missedStreak: number }): Promise<boolean> {
+export async function sendNudgeTo(user: { id: string; name: string; email: string; missedStreak: number }): Promise<boolean> {
   const settings = await prisma.settings.upsert({ where: { id: 1 }, create: { id: 1 }, update: {} });
   const heading = fillNudgeTemplate(settings.inactivityNudgeSubject, user.name, user.missedStreak);
   const message = fillNudgeTemplate(settings.inactivityNudgeTemplate, user.name, user.missedStreak);
   const args = { name: user.name, heading, message, formUrl: getSiteUrl() };
-  return sendOne({
-    to: user.email,
-    from: fromAddress(settings),
-    subject: heading,
-    text: inactivityNudgeEmailText(args),
-    html: inactivityNudgeEmailHtml(args),
-  });
+  const text = inactivityNudgeEmailText(args);
+  const html = inactivityNudgeEmailHtml(args);
+  const ok = await sendOne({ to: user.email, from: fromAddress(settings), subject: heading, text, html });
+  if (ok) await recordNotification({ userId: user.id, kind: "nudge", title: `🥪 ${heading}`, text, html });
+  return ok;
 }
