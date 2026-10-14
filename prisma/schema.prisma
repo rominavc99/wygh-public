@@ -54,6 +54,7 @@ model User {
   inactivityNudges InactivityNudge[]
   engagementEmails EngagementEmail[]
   notifications    Notification[]
+  commentMentions  CommentMention[]
 }
 
 // Reacción de un usuario a la respuesta de alguien en /boletines. `emoji`
@@ -87,6 +88,22 @@ model Comment {
   text       String
   createdAt  DateTime @default(now())
   reactions  CommentReaction[]
+  /// Comentario al que responde (siempre uno de primer nivel: los hilos
+  /// tienen un solo nivel). null = comentario directo a la respuesta.
+  parentId   String?
+  parent     Comment?  @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies    Comment[] @relation("CommentReplies")
+  mentions   CommentMention[]
+}
+
+/// Persona etiquetada (@nombre) en un comentario.
+model CommentMention {
+  commentId String
+  comment   Comment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([commentId, userId])
 }
 
 // Reacción a un comentario — mismo esquema y reglas que Reaction (varios

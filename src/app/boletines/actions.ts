@@ -5,7 +5,8 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth-guards";
 import { rateLimit } from "@/lib/rate-limit";
-import { notifyResponseInteraction, notifyCommentReaction } from "@/lib/notify-interaction";
+import { notifyResponseInteraction, notifyCommentReaction, notifyNewComment } from "@/lib/notify-interaction";
+import { displayName } from "@/lib/display-name";
 
 /** Agrega la reacción si no existía, o la quita si el usuario ya había reaccionado igual (toggle). */
 export async function toggleReaction(responseId: string, emoji: string, kind: "emoji" | "ascii") {
@@ -78,8 +79,56 @@ export async function addComment(
     return { status: "error", message: parsed.error.issues[0]?.message ?? "Escribe algo." };
   }
 
-  await prisma.comment.create({ data: { responseId, userId: user.id, text: parsed.data } });
-  void notifyResponseInteraction({ responseId, actorId: user.id, message: "comentó tu respuesta" });
+  const text = parsed.data;
+
+  // Respuesta a un comentario: el hilo tiene un solo nivel, así que si se
+  // responde a una respuesta, cuelga del mismo comentario de primer nivel
+  // (y a quien escribió la respuesta se le avisa igual).
+  const replyToId = String(formData.get("replyToId") ?? "");
+  let parentId: string | null = null;
+  let replyToUserId: string | null = null;
+  if (replyToId) {
+    const target = await prisma.comment.findUnique({
+      where: { id: replyToId },
+      select: { responseId: true, parentId: true, userId: true },
+    });
+    if (!target || target.responseId !== responseId) {
+      return { status: "error", message: "Ese comentario ya no existe." };
+    }
+    parentId = target.parentId ?? replyToId;
+    replyToUserId = target.userId;
+  }
+
+  // Solo cuentan las etiquetas de personas activas cuyo "@Nombre" siga en
+  // el texto (por si lo borraron después de elegirlo en la lista).
+  let mentionIds: string[] = [];
+  try {
+    const raw = JSON.parse(String(formData.get("mentions") ?? "[]"));
+    if (Array.isArray(raw)) mentionIds = [...new Set(raw.filter((id): id is string => typeof id === "string"))].slice(0, 20);
+  } catch {
+    mentionIds = [];
+  }
+  const mentioned = mentionIds.length
+    ? (await prisma.user.findMany({ where: { id: { in: mentionIds }, active: true } })).filter((u) =>
+        text.includes(`@${displayName(u)}`)
+      )
+    : [];
+
+  const comment = await prisma.comment.create({
+    data: {
+      responseId,
+      userId: user.id,
+      text,
+      parentId,
+      mentions: { create: mentioned.map((u) => ({ userId: u.id })) },
+    },
+  });
+  void notifyNewComment({
+    commentId: comment.id,
+    actorId: user.id,
+    replyToUserId,
+    mentionedIds: mentioned.map((u) => u.id),
+  });
   revalidatePath("/boletines");
   return { status: "idle" };
 }

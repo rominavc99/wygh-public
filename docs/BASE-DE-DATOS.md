@@ -22,6 +22,9 @@ erDiagram
     Response ||--o{ Reaction : "recibe"
     Response ||--o{ Comment : "recibe"
     Comment ||--o{ CommentReaction : "recibe"
+    Comment ||--o{ Comment : "respuestas (parentId)"
+    Comment ||--o{ CommentMention : "etiqueta a"
+    User ||--o{ CommentMention : "etiquetado en"
     User ||--o{ Reaction : "reacciona"
     User ||--o{ Comment : "comenta"
     User ||--o{ CommentReaction : "reacciona"
@@ -76,8 +79,14 @@ erDiagram
         string id PK
         string responseId FK
         string userId FK
+        string parentId FK "nullable; comentario de primer nivel al que responde"
         string text
         datetime createdAt
+    }
+
+    CommentMention {
+        string commentId PK,FK
+        string userId PK,FK
     }
 
     CommentReaction {
@@ -308,7 +317,9 @@ erDiagram
   para pintar distinto los emojis y los emoticones ascii. Están en tablas
   separadas para no mezclar reacciones a respuestas con reacciones a
   comentarios (p. ej. el top 5 de cumpleaños solo cuenta las primeras).
-- **`Comment`** es un hilo plano por respuesta, en orden cronológico.
+- **`Comment`** va en orden cronológico por respuesta; `parentId` apunta
+  al comentario de primer nivel al que responde (un solo nivel de hilo).
+  **`CommentMention`** guarda a quién se etiquetó en cada comentario.
 - Todo se borra en cascada con la respuesta o con el usuario.
 
 ### Portada del boletín
