@@ -8,16 +8,22 @@ import {
   FONT_BODY,
 } from "@/lib/email-theme";
 
-/** Correo avisando que alguien reaccionó o comentó tu respuesta de un día. */
+/**
+ * Correo avisando que alguien reaccionó o comentó tu respuesta de un día,
+ * respondió a tu comentario o te etiquetó. `quote` es el texto del
+ * comentario, si lo hay.
+ */
 export function interactionEmailHtml({
   name,
   actorName,
   message,
+  quote,
   boletinUrl,
 }: {
   name: string;
   actorName: string;
   message: string;
+  quote?: string;
   boletinUrl: string;
 }): string {
   const safeName = escapeHtml(name);
@@ -44,6 +50,7 @@ export function interactionEmailHtml({
             <td style="padding:28px 26px 30px;">
               <p class="text-ink" style="margin:0 0 14px;color:${l.ink};font-size:14px;line-height:1.6;">Hola ${safeName},</p>
               <p class="text-ink" style="margin:0 0 18px;color:${l.ink};font-size:15px;line-height:1.6;"><strong>${safeActor}</strong> ${safeMessage}</p>
+              ${quote ? `<p class="text-ink border-pink" style="margin:0 0 20px;padding:4px 0 4px 12px;border-left:3px solid ${l.pink};color:${l.ink};font-size:14px;line-height:1.55;font-style:italic;">"${escapeHtml(quote)}"</p>` : ""}
               <table role="presentation" cellpadding="0" cellspacing="0">
                 <tr>
                   <td class="bg-btn" style="border-radius:18px;${flatBg(l.btn)}">
@@ -66,12 +73,14 @@ export function interactionEmailText({
   name,
   actorName,
   message,
+  quote,
   boletinUrl,
 }: {
   name: string;
   actorName: string;
   message: string;
+  quote?: string;
   boletinUrl: string;
 }): string {
-  return `Hola ${name},\n\n${actorName} ${message}\n\n${boletinUrl}`;
+  return `Hola ${name},\n\n${actorName} ${message}${quote ? `\n\n"${quote}"` : ""}\n\n${boletinUrl}`;
 }
