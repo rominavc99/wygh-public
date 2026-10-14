@@ -70,6 +70,7 @@ export default async function BoletinesPage({
     );
   }
 
+  const mentionable = await mentionableUsers();
   const [responses, settings, send] = isArchived
     ? [[], null, null]
     : await Promise.all([
@@ -79,7 +80,7 @@ export default async function BoletinesPage({
             user: true,
             reactions: { include: { user: true } },
             comments: {
-              include: { user: true, reactions: { include: { user: true } } },
+              include: { user: true, reactions: { include: { user: true } }, mentions: { include: { user: true } } },
               orderBy: { createdAt: "asc" },
             },
           },
@@ -118,7 +119,7 @@ export default async function BoletinesPage({
           {responses.length > 0 ? (
             <ul className="flex flex-col gap-4">
               {responses.map((r) => (
-                <ResponseCard key={r.id} response={r} currentUserId={session.user.id} />
+                <ResponseCard key={r.id} response={r} currentUserId={session.user.id} mentionable={mentionable} />
               ))}
             </ul>
           ) : (
@@ -276,12 +277,13 @@ async function BirthdayEditionView({ userId, date, currentUserId }: { userId: st
       user: true,
       reactions: { include: { user: true } },
       comments: {
-        include: { user: true, reactions: { include: { user: true } } },
+        include: { user: true, reactions: { include: { user: true } }, mentions: { include: { user: true } } },
         orderBy: { createdAt: "asc" },
       },
     },
   });
   const moments = responseIds.flatMap((id) => found.filter((r) => r.id === id));
+  const mentionable = await mentionableUsers();
   const celebrant = displayName(edition.user);
 
   return (
@@ -303,7 +305,7 @@ async function BirthdayEditionView({ userId, date, currentUserId }: { userId: st
                 #{i + 1} · 📅 {capitalize(formatLocalDate(r.date))}
               </p>
               <ul>
-                <ResponseCard response={r} currentUserId={currentUserId} />
+                <ResponseCard response={r} currentUserId={currentUserId} mentionable={mentionable} />
               </ul>
             </li>
           ))}
@@ -315,4 +317,10 @@ async function BirthdayEditionView({ userId, date, currentUserId }: { userId: st
       )}
     </div>
   );
+}
+
+/** Personas que se pueden etiquetar en los comentarios (las activas). */
+async function mentionableUsers(): Promise<{ id: string; name: string }[]> {
+  const users = await prisma.user.findMany({ where: { active: true }, select: { id: true, name: true, username: true } });
+  return users.map((u) => ({ id: u.id, name: displayName(u) })).sort((a, b) => a.name.localeCompare(b.name));
 }
