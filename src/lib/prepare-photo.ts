@@ -6,6 +6,8 @@
 
 const MAX_SIDE_PX = 2000;
 const JPEG_QUALITY = 0.85;
+// Los que acepta el servidor (ALLOWED_TYPES en src/lib/response-photos.ts).
+const SENDABLE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
 
 export type PreparedPhoto = {
   /** Contenido en base64, sin el prefijo "data:...;base64,". */
@@ -42,7 +44,10 @@ async function shrink(file: File): Promise<Blob | null> {
 export async function preparePhoto(file: File): Promise<PreparedPhoto> {
   // Los GIF se mandan tal cual para no perder la animación.
   const shrunk = file.type === "image/gif" ? null : await shrink(file);
-  const blob = shrunk && shrunk.size < file.size ? shrunk : file;
+  // El original solo se queda si es más chico Y es un formato que el
+  // servidor acepta — un HEIC del iPhone suele pesar menos que su versión
+  // JPEG, y mandarlo tal cual lo hacía rechazar.
+  const blob = shrunk && (shrunk.size < file.size || !SENDABLE_TYPES.includes(file.type)) ? shrunk : file;
   const type = blob === file ? file.type : "image/jpeg";
   const dataUrl = await readAsDataUrl(blob);
   return { data: dataUrl.slice(dataUrl.indexOf(",") + 1), type, dataUrl };

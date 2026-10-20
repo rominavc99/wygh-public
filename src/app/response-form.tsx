@@ -495,7 +495,11 @@ function ResponseFormFields({
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/jpeg,image/png,image/webp,image/gif"
+          // image/* y no la lista exacta de tipos: con la lista, el selector
+          // de Fotos del iPhone no deja elegir las fotos HEIC (el formato
+          // por default del iPhone) y había que exportarlas a Archivos
+          // primero. preparePhoto las convierte a JPEG de todos modos.
+          accept="image/*"
           onChange={handlePhotoChange}
           className={inputClass}
         />
