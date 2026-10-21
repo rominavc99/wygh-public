@@ -12,6 +12,9 @@ import { EXTRAORDINARY_PATH, notifyExtraordinaryResponse } from "@/lib/extraordi
  * Guarda la respuesta extraordinaria para el día elegido. Se salta el
  * bloqueo tras el envío (ese es el punto), pero solo con un permiso sin
  * usar para ese día, la página habilitada y sin respuesta previa ese día.
+ * Un admin no necesita nada de eso (solo un día pasado sin respuesta): se
+ * le anota un permiso ya usado a su nombre, para que quede en Ajustes y
+ * el día salga en /boletines igual que los demás.
  */
 export async function saveExtraordinaryResponse(
   _prevState: SaveResponseState,
@@ -38,10 +41,16 @@ export async function saveExtraordinaryResponse(
     prisma.response.findUnique({ where: { userId_date: { userId, date } } }),
   ]);
 
-  if (!settings.extraordinaryResponsesEnabled || !grant || date >= todayLocalDate()) {
+  const isAdmin = session.user.role === "ADMIN";
+  if (date >= todayLocalDate()) {
+    return isAdmin
+      ? { status: "error", fieldErrors: { date: "Elige un día que ya haya pasado." }, message: "Revisa los campos marcados." }
+      : { status: "error", message: "No tienes un privilegio activo para ese día." };
+  }
+  if (!isAdmin && (!settings.extraordinaryResponsesEnabled || !grant)) {
     return { status: "error", message: "No tienes un privilegio activo para ese día." };
   }
-  if (grant.usedAt) {
+  if (grant?.usedAt) {
     return { status: "error", message: "Ya usaste tu privilegio para ese día." };
   }
   if (existing) {
@@ -49,24 +58,39 @@ export async function saveExtraordinaryResponse(
   }
 
   // Se aparta el permiso antes de guardar, para que dos envíos seguidos no
-  // lo usen dos veces; si la respuesta no se guarda, se suelta.
-  const { count } = await prisma.extraordinaryGrant.updateMany({
-    where: { id: grant.id, usedAt: null },
-    data: { usedAt: new Date() },
-  });
-  if (count === 0) {
-    return { status: "error", message: "Ya usaste tu privilegio para ese día." };
+  // lo usen dos veces; si la respuesta no se guarda, se suelta. Al admin
+  // sin permiso se le crea uno ya usado (único por persona y día, así que
+  // un segundo envío simultáneo choca ahí).
+  let release: () => Promise<unknown>;
+  if (grant) {
+    const { count } = await prisma.extraordinaryGrant.updateMany({
+      where: { id: grant.id, usedAt: null },
+      data: { usedAt: new Date() },
+    });
+    if (count === 0) return { status: "error", message: "Ya usaste tu privilegio para ese día." };
+    release = () => prisma.extraordinaryGrant.update({ where: { id: grant.id }, data: { usedAt: null } });
+  } else {
+    let createdId: string;
+    try {
+      const created = await prisma.extraordinaryGrant.create({
+        data: { userId, date, grantedById: userId, notifiedAt: new Date(), usedAt: new Date() },
+      });
+      createdId = created.id;
+    } catch {
+      return { status: "error", message: "Ya tienes una respuesta para ese día." };
+    }
+    release = () => prisma.extraordinaryGrant.delete({ where: { id: createdId } });
   }
 
   let result: SaveResponseState;
   try {
     result = await writeResponse(userId, date, formData, null);
   } catch (error) {
-    await prisma.extraordinaryGrant.update({ where: { id: grant.id }, data: { usedAt: null } });
+    await release();
     throw error;
   }
   if (result.status !== "success") {
-    await prisma.extraordinaryGrant.update({ where: { id: grant.id }, data: { usedAt: null } });
+    await release();
     return result;
   }
 

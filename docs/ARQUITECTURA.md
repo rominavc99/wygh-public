@@ -161,6 +161,10 @@ día, solo si ese día no tiene respuesta suya).
   `"use server"` para no exponerlo como acción).
 - `saveExtraordinaryResponse` se salta `lockResponsesAfterSend`, pero
   aparta el permiso (`usedAt`) antes de guardar y lo suelta si falla.
+- Un admin siempre ve el formulario, aunque la página esté deshabilitada,
+  y elige cualquier día pasado sin respuesta suya (calendario en vez de
+  la lista). Al guardar se le anota un permiso ya usado a su nombre, para
+  que quede en Ajustes y el día salga en `/boletines`.
 - No se vuelve a mandar el boletín ni cambia su snapshot: la respuesta
   aparece en `/boletines`, que lee las respuestas en vivo, sin distinguirse
   de las demás. Si ese día no salió boletín, igual se lista.
