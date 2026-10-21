@@ -90,11 +90,16 @@ async function checkAndDeploy() {
 
   run(`git fetch origin ${BRANCH}`, STAGING_DIR);
   const remoteSha = run(`git rev-parse origin/${BRANCH}`, STAGING_DIR).trim();
-  const liveSha = run(`git rev-parse HEAD`, LIVE_DIR).trim();
-
-  if (remoteSha === liveSha) return; // ya estamos al día
-
+  // Se compara contra lo último que este watcher desplegó (compiló y
+  // reinició), no contra el HEAD del directorio en vivo: si alguien hace
+  // commit ahí mismo y luego push, el HEAD ya coincide con origin/prod
+  // aunque el build que corre sea el viejo, y el deploy se saltaba sin
+  // avisar. El HEAD solo se usa si todavía no hay estado guardado.
   const state = loadState();
+  const deployedSha = state.lastDeployedSha ?? run(`git rev-parse HEAD`, LIVE_DIR).trim();
+
+  if (remoteSha === deployedSha) return; // ya estamos al día
+
   if (
     state.lastAttemptSha === remoteSha &&
     state.lastAttemptStatus === "failed" &&
