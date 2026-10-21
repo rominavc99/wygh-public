@@ -80,8 +80,10 @@ erDiagram
         string responseId FK
         string userId FK
         string parentId FK "nullable; comentario de primer nivel al que responde"
-        string text
+        string text "puede ir vacío si hay foto"
+        string photoFilename "nullable; IMG/respuestas/comentario-..."
         datetime createdAt
+        datetime editedAt "nullable; última edición de su autor"
     }
 
     CommentMention {

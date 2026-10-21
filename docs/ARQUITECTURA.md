@@ -337,6 +337,13 @@ worker manda a todos los activos un boletín extra
   - **Comentar** (`comment-thread.tsx`) y **responder** a un comentario.
     Los hilos tienen un solo nivel: responder a una respuesta la cuelga
     del mismo comentario de primer nivel y etiqueta a quien la escribió.
+    Un comentario puede llevar una **foto** (📷), con o sin texto: se
+    prepara igual que la del formulario diario (`prepare-photo.ts`,
+    base64) y se guarda junto a las de las respuestas
+    (`saveCommentPhoto()`), pero no entra a la portada.
+  - **Editar** un comentario propio (✏️): texto, etiquetas y foto. Queda
+    marcado como "editado" (`Comment.editedAt`) y solo se avisa a quienes
+    se etiquetó recién en la edición.
   - **Etiquetar** con `@`: al escribir sale la lista de personas activas;
     lo elegido viaja aparte (ids) y el servidor solo guarda las
     etiquetas cuyo `@Nombre` siga en el texto. Se resaltan al mostrarse.

@@ -88,8 +88,15 @@ model Comment {
   response   Response @relation(fields: [responseId], references: [id], onDelete: Cascade)
   userId     String
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// Puede quedar vacío si el comentario es solo una foto.
   text       String
+  /// Foto opcional, mismo almacenamiento y ruta que las de las respuestas
+  /// (ver saveCommentPhoto en src/lib/response-photos.ts); no entra a la
+  /// rotación de portada.
+  photoFilename String?
   createdAt  DateTime @default(now())
+  /// Última vez que su autor lo editó; null = nunca se editó.
+  editedAt   DateTime?
   reactions  CommentReaction[]
   /// Comentario al que responde (siempre uno de primer nivel: los hilos
   /// tienen un solo nivel). null = comentario directo a la respuesta.

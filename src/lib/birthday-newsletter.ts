@@ -162,7 +162,7 @@ export async function topMoments(userId: string, date: string): Promise<Birthday
         photoUrl: r.photoFilename ? `${getSiteUrl()}/${r.photoFilename}` : null,
         photoDescription: r.photoDescription,
         reactions: [...counts].map(([emoji, count]) => ({ emoji, count })).sort((a, b) => b.count - a.count),
-        comments: r.comments.map((c) => ({ authorName: displayName(c.user), text: c.text })),
+        comments: r.comments.map((c) => ({ authorName: displayName(c.user), text: c.text || (c.photoFilename ? "📷 (foto)" : "") })),
       };
     });
 }

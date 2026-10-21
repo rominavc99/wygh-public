@@ -102,33 +102,38 @@ async function notifyUser({
  * Avisa de un comentario nuevo a quien corresponda, una sola vez por
  * persona y con el aviso más específico: a quien le respondieron, luego
  * a quien etiquetaron y al final al dueño de la respuesta. Nunca a quien
- * comentó. Best-effort, como los de arriba.
+ * comentó. Best-effort, como los de arriba. Con onlyMentions (al editar
+ * un comentario) solo se avisa a las personas etiquetadas.
  */
 export async function notifyNewComment({
   commentId,
   actorId,
   replyToUserId,
   mentionedIds,
+  onlyMentions = false,
 }: {
   commentId: string;
   actorId: string;
   replyToUserId: string | null;
   mentionedIds: string[];
+  onlyMentions?: boolean;
 }): Promise<void> {
   try {
     const comment = await prisma.comment.findUnique({
       where: { id: commentId },
-      select: { text: true, response: { select: { date: true, userId: true } } },
+      select: { text: true, photoFilename: true, response: { select: { date: true, userId: true } } },
     });
     if (!comment) return;
 
     const messages = new Map<string, string>();
     if (replyToUserId) messages.set(replyToUserId, "respondió a tu comentario");
     for (const id of mentionedIds) if (!messages.has(id)) messages.set(id, "te etiquetó en un comentario");
-    if (!messages.has(comment.response.userId)) messages.set(comment.response.userId, "comentó tu respuesta");
+    if (!onlyMentions && !messages.has(comment.response.userId)) messages.set(comment.response.userId, "comentó tu respuesta");
     messages.delete(actorId);
 
-    const quote = comment.text.length > 200 ? `${comment.text.slice(0, 197)}…` : comment.text;
+    // Un comentario puede ser solo una foto (sin texto).
+    const text = comment.text || (comment.photoFilename ? "📷 Foto" : "");
+    const quote = text.length > 200 ? `${text.slice(0, 197)}…` : text;
     const recipients = await prisma.user.findMany({ where: { id: { in: [...messages.keys()] } } });
     await Promise.all(
       recipients.map((recipient) =>
