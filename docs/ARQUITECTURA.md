@@ -161,6 +161,10 @@ día, solo si ese día no tiene respuesta suya).
   `"use server"` para no exponerlo como acción).
 - `saveExtraordinaryResponse` se salta `lockResponsesAfterSend`, pero
   aparta el permiso (`usedAt`) antes de guardar y lo suelta si falla.
+- Un admin siempre ve el formulario, aunque la página esté deshabilitada,
+  y elige cualquier día pasado sin respuesta suya (calendario en vez de
+  la lista). Al guardar se le anota un permiso ya usado a su nombre, para
+  que quede en Ajustes y el día salga en `/boletines`.
 - No se vuelve a mandar el boletín ni cambia su snapshot: la respuesta
   aparece en `/boletines`, que lee las respuestas en vivo, sin distinguirse
   de las demás. Si ese día no salió boletín, igual se lista.
@@ -330,11 +334,19 @@ worker manda a todos los activos un boletín extra
   - **Ver quién reaccionó**: al pasar el mouse sobre una reacción, o con
     el botón 👥 en celular. `summarizeReactions()` (`src/lib/reactions.ts`)
     agrupa por emoji con los nombres.
-  - **Comentar** (`comment-thread.tsx`), en un hilo plano.
-- Cada reacción o comentario avisa por correo al dueño de la respuesta o
-  del comentario (`notify-interaction.ts`), salvo que sea uno mismo o la
-  persona esté desactivada. Es best-effort: si el correo falla, la
-  reacción igual se guarda.
+  - **Comentar** (`comment-thread.tsx`) y **responder** a un comentario.
+    Los hilos tienen un solo nivel: responder a una respuesta la cuelga
+    del mismo comentario de primer nivel y etiqueta a quien la escribió.
+  - **Etiquetar** con `@`: al escribir sale la lista de personas activas;
+    lo elegido viaja aparte (ids) y el servidor solo guarda las
+    etiquetas cuyo `@Nombre` siga en el texto. Se resaltan al mostrarse.
+- Cada reacción avisa al dueño de la respuesta o del comentario
+  (`notify-interaction.ts`). Un comentario nuevo avisa con
+  `notifyNewComment()` una sola vez por persona, con lo más específico:
+  "respondió a tu comentario", luego "te etiquetó" y al final "comentó tu
+  respuesta", con el texto del comentario. Nunca a uno mismo ni a cuentas
+  desactivadas. Todos llegan por correo y a `/notificaciones`. Es
+  best-effort: si el correo falla, el comentario igual se guarda.
 - Los menús emergentes (`popover.tsx`) se pintan en un portal con
   `position: fixed` para que el `overflow: hidden` del panel no los
   recorte, y se ajustan para no salirse de la pantalla en celular.

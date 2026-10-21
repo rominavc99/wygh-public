@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { markSeen } from "@/lib/last-seen";
 import { prisma } from "@/lib/prisma";
-import { formatLocalDate } from "@/lib/date";
+import { addDaysLocal, formatLocalDate, todayLocalDate } from "@/lib/date";
 import { capitalize } from "@/lib/newsletter";
 import { EXTRAORDINARY_PATH, usableGrants, recentlyUsedGrants } from "@/lib/extraordinary";
 import { ResponseForm } from "../response-form";
@@ -13,6 +13,8 @@ import { saveExtraordinaryResponse } from "./actions";
  * Respuesta para un día pasado, solo con un permiso de un solo uso que da
  * un admin desde Ajustes (ver src/lib/extraordinary.ts). El admin comparte
  * el enlace a mano o le llega a la persona en el correo del privilegio.
+ * Un admin siempre ve el formulario y puede elegir cualquier día pasado,
+ * aunque la página esté deshabilitada.
  */
 export default async function RespuestaExtraordinariaPage() {
   const session = await auth();
@@ -27,6 +29,8 @@ export default async function RespuestaExtraordinariaPage() {
   ]);
   const enabled = settings.extraordinaryResponsesEnabled;
   const available = enabled ? grants : [];
+  const isAdmin = session.user.role === "ADMIN";
+  const showForm = isAdmin || available.length > 0;
 
   return (
     <main className="relative z-10 flex flex-1 justify-center px-4 py-10">
@@ -47,8 +51,8 @@ export default async function RespuestaExtraordinariaPage() {
 
         <div className="win">
           <div className="win-titlebar">
-            <span className="win-icon">{available.length ? "👑" : "🔒"}</span>
-            <span className="win-title">{available.length ? "Solo para ti" : "Respuesta extraordinaria"}</span>
+            <span className="win-icon">{showForm ? "👑" : "🔒"}</span>
+            <span className="win-title">{showForm ? "Solo para ti" : "Respuesta extraordinaria"}</span>
             <div className="win-btns">
               <div className="win-btn">_</div>
               <div className="win-btn">□</div>
@@ -72,7 +76,23 @@ export default async function RespuestaExtraordinariaPage() {
           ) : null}
 
           <div className="win-body">
-            {available.length ? (
+            {isAdmin ? (
+              <div className="flex flex-col gap-5">
+                <p className="text-sm text-ink-soft">
+                  Como admin puedes mandar tu respuesta para cualquier día que ya pasó y en el que no hayas
+                  respondido, aunque la página esté deshabilitada. Se agrega al boletín de ese día en el sitio (el
+                  correo no se vuelve a enviar) y al resto del grupo le llega el aviso de actualizaciones.
+                </p>
+                {/* key: tras guardar, el formulario se vuelve a montar vacío. */}
+                <ResponseForm
+                  key={used.map((g) => g.id).join(",")}
+                  existing={null}
+                  draftKey={`wygh:extraordinaria:${session.user.id}`}
+                  action={saveExtraordinaryResponse}
+                  dateMax={addDaysLocal(todayLocalDate(), -1)}
+                />
+              </div>
+            ) : available.length ? (
               <div className="flex flex-col gap-5">
                 <p className="text-sm text-ink-soft">
                   El admin te dio un privilegio que casi nadie tiene: mandar tu respuesta para un día que ya pasó,

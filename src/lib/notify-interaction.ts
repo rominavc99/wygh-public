@@ -60,11 +60,14 @@ async function notifyUser({
   date,
   actorId,
   message,
+  quote,
 }: {
   recipient: { id: string; name: string; username: string | null; email: string; active: boolean };
   date: string;
   actorId: string;
   message: string;
+  /** Texto del comentario, para mostrarlo en el correo y en la notificación. */
+  quote?: string;
 }): Promise<void> {
   if (recipient.id === actorId || !recipient.active) return;
 
@@ -82,9 +85,57 @@ async function notifyUser({
     to: recipient.email,
     from,
     subject,
-    text: interactionEmailText({ name: recipientName, actorName, message, boletinUrl }),
-    html: interactionEmailHtml({ name: recipientName, actorName, message, boletinUrl }),
+    text: interactionEmailText({ name: recipientName, actorName, message, quote, boletinUrl }),
+    html: interactionEmailHtml({ name: recipientName, actorName, message, quote, boletinUrl }),
   });
   // Lleva directo al boletín (ahí está la reacción o el comentario).
-  await recordNotification({ userId: recipient.id, kind: "interaction", title: subject, text: "Toca para verlo en el boletín.", url: boletinUrl });
+  await recordNotification({
+    userId: recipient.id,
+    kind: "interaction",
+    title: subject,
+    text: quote ? `"${quote}"` : "Toca para verlo en el boletín.",
+    url: boletinUrl,
+  });
+}
+
+/**
+ * Avisa de un comentario nuevo a quien corresponda, una sola vez por
+ * persona y con el aviso más específico: a quien le respondieron, luego
+ * a quien etiquetaron y al final al dueño de la respuesta. Nunca a quien
+ * comentó. Best-effort, como los de arriba.
+ */
+export async function notifyNewComment({
+  commentId,
+  actorId,
+  replyToUserId,
+  mentionedIds,
+}: {
+  commentId: string;
+  actorId: string;
+  replyToUserId: string | null;
+  mentionedIds: string[];
+}): Promise<void> {
+  try {
+    const comment = await prisma.comment.findUnique({
+      where: { id: commentId },
+      select: { text: true, response: { select: { date: true, userId: true } } },
+    });
+    if (!comment) return;
+
+    const messages = new Map<string, string>();
+    if (replyToUserId) messages.set(replyToUserId, "respondió a tu comentario");
+    for (const id of mentionedIds) if (!messages.has(id)) messages.set(id, "te etiquetó en un comentario");
+    if (!messages.has(comment.response.userId)) messages.set(comment.response.userId, "comentó tu respuesta");
+    messages.delete(actorId);
+
+    const quote = comment.text.length > 200 ? `${comment.text.slice(0, 197)}…` : comment.text;
+    const recipients = await prisma.user.findMany({ where: { id: { in: [...messages.keys()] } } });
+    await Promise.all(
+      recipients.map((recipient) =>
+        notifyUser({ recipient, date: comment.response.date, actorId, message: messages.get(recipient.id)!, quote })
+      )
+    );
+  } catch (error) {
+    console.error("No se pudo enviar la notificación del comentario:", error);
+  }
 }

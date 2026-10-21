@@ -108,13 +108,16 @@ export function ResponseForm({
   draftKey,
   action = saveResponse,
   dateOptions,
+  dateMax,
 }: {
   existing: ExistingResponse;
   draftKey: string;
   /** Server Action que guarda; por default la del formulario diario. */
   action?: SaveAction;
-  /** Si viene, se pide elegir el día (formulario de respuestas extraordinarias). */
+  /** Si viene, se pide elegir el día entre estos (formulario de respuestas extraordinarias). */
   dateOptions?: { value: string; label: string }[];
+  /** Si viene (y no dateOptions), se pide cualquier día hasta este, con calendario (admins). */
+  dateMax?: string;
 }) {
   // El borrador solo existe en el navegador: se lee después de montar (en
   // el render del servidor no hay localStorage) y, si hay uno, el
@@ -135,6 +138,7 @@ export function ResponseForm({
       draftKey={draftKey}
       action={action}
       dateOptions={dateOptions}
+      dateMax={dateMax}
       onDiscardDraft={() => {
         clearDraft(draftKey);
         setDraft(null);
@@ -149,6 +153,7 @@ function ResponseFormFields({
   draftKey,
   action,
   dateOptions,
+  dateMax,
   onDiscardDraft,
 }: {
   existing: ExistingResponse;
@@ -156,6 +161,7 @@ function ResponseFormFields({
   draftKey: string;
   action: SaveAction;
   dateOptions?: { value: string; label: string }[];
+  dateMax?: string;
   onDiscardDraft: () => void;
 }) {
   const [state, setState] = useState<SaveResponseState>({ status: "idle" });
@@ -302,6 +308,17 @@ function ResponseFormFields({
               </option>
             ))}
           </select>
+        </Field>
+      ) : dateMax ? (
+        <Field label="¿Para qué día es tu respuesta?" error={fieldErrors.date}>
+          <input
+            type="date"
+            name="date"
+            required
+            max={dateMax}
+            defaultValue={draft?.fields.date ?? ""}
+            className={inputClass}
+          />
         </Field>
       ) : null}
 
@@ -495,7 +512,11 @@ function ResponseFormFields({
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/jpeg,image/png,image/webp,image/gif"
+          // image/* y no la lista exacta de tipos: con la lista, el selector
+          // de Fotos del iPhone no deja elegir las fotos HEIC (el formato
+          // por default del iPhone) y había que exportarlas a Archivos
+          // primero. preparePhoto las convierte a JPEG de todos modos.
+          accept="image/*"
           onChange={handlePhotoChange}
           className={inputClass}
         />

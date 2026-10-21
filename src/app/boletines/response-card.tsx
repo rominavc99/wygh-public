@@ -35,22 +35,36 @@ type ResponseWithExtras = {
     id: string;
     text: string;
     createdAt: Date;
+    parentId: string | null;
+    userId: string;
     user: { name: string; username: string | null };
     reactions: ReactionRow[];
+    mentions: { user: { name: string; username: string | null } }[];
   }[];
 };
 
-export function ResponseCard({ response, currentUserId }: { response: ResponseWithExtras; currentUserId: string }) {
+export function ResponseCard({
+  response,
+  currentUserId,
+  mentionable,
+}: {
+  response: ResponseWithExtras;
+  currentUserId: string;
+  mentionable: { id: string; name: string }[];
+}) {
   const r = response;
   const name = displayName(r.user);
   const isOnTime = r.atHome && !r.stayedHome && !r.arrivingLate;
 
   const comments: CommentSummary[] = r.comments.map((c) => ({
     id: c.id,
+    parentId: c.parentId,
+    authorId: c.userId,
     authorName: displayName(c.user),
     text: c.text,
     createdAt: c.createdAt.toISOString(),
     reactions: summarizeReactions(c.reactions, currentUserId),
+    mentions: c.mentions.map((m) => displayName(m.user)),
   }));
 
   return (
@@ -112,7 +126,7 @@ export function ResponseCard({ response, currentUserId }: { response: ResponseWi
         ) : null}
 
         <ReactionBar target={{ type: "response", id: r.id }} reactions={summarizeReactions(r.reactions, currentUserId)} />
-        <CommentThread responseId={r.id} comments={comments} />
+        <CommentThread responseId={r.id} comments={comments} currentUserId={currentUserId} mentionable={mentionable} />
       </div>
     </li>
   );
