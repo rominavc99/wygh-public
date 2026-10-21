@@ -39,7 +39,6 @@ type Draft = {
   savedAt: number;
 };
 
-const DRAFT_PREFIX = "wygh:borrador:";
 const TEXT_FIELDS = [
   "beforeHomePlan",
   "homePlan",
@@ -51,13 +50,20 @@ const TEXT_FIELDS = [
   "photoDescription",
   "phrase",
 ] as const;
+/** Lo que va al borrador: los textos más la fecha del formulario extraordinario. */
+const DRAFT_FIELDS = [...TEXT_FIELDS, "date"] as const;
+
+type SaveAction = (prevState: SaveResponseState, formData: FormData) => Promise<SaveResponseState>;
 
 function loadDraft(key: string): Draft | null {
   try {
-    // Limpieza de borradores de otros días.
+    // Limpieza de borradores de otros días, solo del mismo formulario: el
+    // prefijo son los dos primeros tramos de la clave ("wygh:borrador:" o
+    // "wygh:extraordinaria:"), para que uno no borre el borrador del otro.
+    const prefix = key.split(":").slice(0, 2).join(":") + ":";
     for (let i = localStorage.length - 1; i >= 0; i--) {
       const k = localStorage.key(i);
-      if (k?.startsWith(DRAFT_PREFIX) && k !== key) localStorage.removeItem(k);
+      if (k?.startsWith(prefix) && k !== key) localStorage.removeItem(k);
     }
     const raw = localStorage.getItem(key);
     return raw ? (JSON.parse(raw) as Draft) : null;
@@ -97,7 +103,19 @@ function homeStatusFor(existing: ExistingResponse): HomeStatus {
 const NETWORK_ERROR =
   "No se pudo enviar tu respuesta (¿se cortó el internet?). No te preocupes: lo que escribiste quedó guardado en este dispositivo. Intenta de nuevo.";
 
-export function ResponseForm({ existing, draftKey }: { existing: ExistingResponse; draftKey: string }) {
+export function ResponseForm({
+  existing,
+  draftKey,
+  action = saveResponse,
+  dateOptions,
+}: {
+  existing: ExistingResponse;
+  draftKey: string;
+  /** Server Action que guarda; por default la del formulario diario. */
+  action?: SaveAction;
+  /** Si viene, se pide elegir el día (formulario de respuestas extraordinarias). */
+  dateOptions?: { value: string; label: string }[];
+}) {
   // El borrador solo existe en el navegador: se lee después de montar (en
   // el render del servidor no hay localStorage) y, si hay uno, el
   // formulario se vuelve a montar con esos valores.
@@ -115,6 +133,8 @@ export function ResponseForm({ existing, draftKey }: { existing: ExistingRespons
       existing={existing}
       draft={draft}
       draftKey={draftKey}
+      action={action}
+      dateOptions={dateOptions}
       onDiscardDraft={() => {
         clearDraft(draftKey);
         setDraft(null);
@@ -127,11 +147,15 @@ function ResponseFormFields({
   existing,
   draft,
   draftKey,
+  action,
+  dateOptions,
   onDiscardDraft,
 }: {
   existing: ExistingResponse;
   draft: Draft | null;
   draftKey: string;
+  action: SaveAction;
+  dateOptions?: { value: string; label: string }[];
   onDiscardDraft: () => void;
 }) {
   const [state, setState] = useState<SaveResponseState>({ status: "idle" });
@@ -162,9 +186,11 @@ function ResponseFormFields({
   function saveDraftNow() {
     const form = formRef.current;
     if (!form) return;
-    for (const name of TEXT_FIELDS) {
+    for (const name of DRAFT_FIELDS) {
       const el = form.elements.namedItem(name);
-      if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) fieldsRef.current[name] = el.value;
+      if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) {
+        fieldsRef.current[name] = el.value;
+      }
     }
     writeDraft(draftKey, {
       fields: { ...fieldsRef.current },
@@ -240,7 +266,7 @@ function ResponseFormFields({
 
     startTransition(async () => {
       try {
-        const result = await saveResponse({ status: "idle" }, data);
+        const result = await action({ status: "idle" }, data);
         if (result.status === "success") clearDraft(draftKey);
         setState(result);
       } catch {
@@ -258,6 +284,25 @@ function ResponseFormFields({
             Descartar
           </button>
         </div>
+      ) : null}
+
+      {dateOptions ? (
+        <Field label="¿Para qué día es tu respuesta?" error={fieldErrors.date}>
+          <select
+            name="date"
+            required
+            defaultValue={
+              dateOptions.some((o) => o.value === draft?.fields.date) ? draft!.fields.date : dateOptions[0]?.value
+            }
+            className={inputClass}
+          >
+            {dateOptions.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </Field>
       ) : null}
 
       <fieldset className="flex flex-col gap-2">

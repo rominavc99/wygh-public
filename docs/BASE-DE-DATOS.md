@@ -100,6 +100,7 @@ erDiagram
     User ||--o{ InactivityNudge : "recibe"
     User ||--o{ EngagementEmail : "recibe"
     User ||--o{ Notification : "recibe"
+    User ||--o{ ExtraordinaryGrant : "recibe / da (admin)"
     HeroPhoto ||--o{ DailyPick : "elegida para un día"
     Phrase ||--o{ DailyPick : "elegida para un día"
     HeroPhoto ||--o{ BirthdayNewsletter : "portada de"
@@ -128,6 +129,17 @@ erDiagram
         string birthdayHeroTitle "admite {nombre} y {NOMBRE}"
         string birthdayHeroParagraph "admite {nombre} y {NOMBRE}"
         string birthdayTopTitle "admite {nombre} y {NOMBRE}"
+        boolean extraordinaryResponsesEnabled "habilita /respuesta-extraordinaria"
+    }
+
+    ExtraordinaryGrant {
+        string id PK
+        string userId FK "quien puede responder"
+        string date "YYYY-MM-DD; único con userId"
+        string grantedById FK "nullable; admin que lo dio"
+        datetime notifiedAt "nullable; correo del privilegio enviado"
+        datetime usedAt "nullable; ya respondió, no se puede reusar"
+        datetime createdAt
     }
 
     Phrase {
@@ -355,6 +367,11 @@ erDiagram
   `readAt` null = sin leer. Se borran a los 365 días.
 - **`EngagementEmail`** hace idempotentes los correos especiales (racha,
   "hace un año", aniversario, resumen anual, bienvenida).
+- **`ExtraordinaryGrant`**: privilegio de un solo uso para responder un
+  día pasado desde `/respuesta-extraordinaria`. `notifiedAt` null =
+  todavía no se le avisa (la página estaba deshabilitada); `usedAt` se
+  llena al guardar la respuesta. Los días con alguno usado salen en
+  `/boletines` aunque ese día no haya `NewsletterSend`.
 - **`User.lastSeenAt`**: última vez que la persona abrió el sitio con
   sesión; ver `src/lib/last-seen.ts` para cómo se combina con sesiones y
   actividad.

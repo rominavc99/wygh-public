@@ -23,7 +23,7 @@ export default async function BoletinesPage({
 
   // Los boletines archivados no deben verse acá — ni en el selector ni
   // entrando directo con su fecha por la URL.
-  const [allSends, birthdayEditions] = await Promise.all([
+  const [allSends, birthdayEditions, extraordinaryDays] = await Promise.all([
     prisma.newsletterSend.findMany({
       select: { date: true, archived: true },
       orderBy: { date: "desc" },
@@ -33,8 +33,20 @@ export default async function BoletinesPage({
       select: { userId: true, date: true, user: { select: { name: true, username: true } } },
       orderBy: { date: "desc" },
     }),
+    // Días con respuestas extraordinarias (ver src/lib/extraordinary.ts):
+    // si ese día no salió boletín (justo cuando la app falla), igual se
+    // listan para que se vean las respuestas que llegaron después.
+    prisma.extraordinaryGrant.findMany({
+      where: { usedAt: { not: null } },
+      select: { date: true },
+      distinct: ["date"],
+    }),
   ]);
-  const sentDates = allSends.filter((s) => !s.archived);
+  const sendDates = new Set(allSends.map((s) => s.date));
+  const sentDates = [
+    ...allSends.filter((s) => !s.archived),
+    ...extraordinaryDays.filter((d) => !sendDates.has(d.date)),
+  ];
   const archivedDates = new Set(allSends.filter((s) => s.archived).map((s) => s.date));
 
   // Diarios y de cumpleaños en una sola lista, del más reciente al más
