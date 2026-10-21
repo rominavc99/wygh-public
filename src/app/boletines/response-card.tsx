@@ -35,6 +35,8 @@ type ResponseWithExtras = {
     id: string;
     text: string;
     createdAt: Date;
+    photoFilename: string | null;
+    editedAt: Date | null;
     parentId: string | null;
     userId: string;
     user: { name: string; username: string | null };
@@ -62,7 +64,9 @@ export function ResponseCard({
     authorId: c.userId,
     authorName: displayName(c.user),
     text: c.text,
+    photoFilename: c.photoFilename,
     createdAt: c.createdAt.toISOString(),
+    editedAt: c.editedAt?.toISOString() ?? null,
     reactions: summarizeReactions(c.reactions, currentUserId),
     mentions: c.mentions.map((m) => displayName(m.user)),
   }));

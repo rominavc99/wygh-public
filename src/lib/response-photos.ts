@@ -80,6 +80,20 @@ export async function saveResponsePhoto(userId: string, date: string, photo: Inc
   return filename;
 }
 
+/**
+ * Igual que saveResponsePhoto, para la foto de un comentario: mismo
+ * directorio y misma ruta protegida, pero sin fila HeroPhoto (no entra a la
+ * portada). El prefijo es solo para reconocerlas al mirar la carpeta.
+ */
+export async function saveCommentPhoto(userId: string, photo: IncomingPhoto): Promise<string> {
+  const ext = ALLOWED_TYPES[photo.type];
+  const filename = `${RESPONSE_PHOTOS_DIR}/comentario-${userId.slice(0, 8)}-${crypto.randomUUID().slice(0, 12)}.${ext}`;
+  const fullPath = diskPathFor(filename);
+  await fs.mkdir(path.dirname(fullPath), { recursive: true });
+  await fs.writeFile(fullPath, photo.buffer);
+  return filename;
+}
+
 /** Unlink best-effort — no falla si el archivo ya no existe. */
 export async function deleteResponsePhotoFile(filename: string): Promise<void> {
   try {
