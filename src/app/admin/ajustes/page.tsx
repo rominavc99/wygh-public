@@ -1,12 +1,16 @@
 import { prisma } from "@/lib/prisma";
-import { todayLocalDate } from "@/lib/date";
+import { addDaysLocal, formatLocalDate, todayLocalDate } from "@/lib/date";
 import { displayName } from "@/lib/display-name";
+import { getSiteUrl } from "@/lib/site-url";
 import { manualRecipients } from "@/lib/send-now";
+import { capitalize } from "@/lib/newsletter";
+import { EXTRAORDINARY_PATH } from "@/lib/extraordinary";
 import { SettingsForm } from "./settings-form";
+import { ExtraordinarySection } from "./extraordinary-section";
 
 export default async function AjustesPage() {
   const today = todayLocalDate();
-  const [settings, users, weekly, nudge, streak, onThisDay, anniversary, wrapped] = await Promise.all([
+  const [settings, users, weekly, nudge, streak, onThisDay, anniversary, wrapped, grants] = await Promise.all([
     prisma.settings.upsert({
       where: { id: 1 },
       create: { id: 1 },
@@ -19,7 +23,13 @@ export default async function AjustesPage() {
     manualRecipients("on-this-day", today),
     manualRecipients("anniversary", today),
     manualRecipients("wrapped", today),
+    prisma.extraordinaryGrant.findMany({
+      include: { user: true },
+      orderBy: { createdAt: "desc" },
+      take: 100,
+    }),
   ]);
+  const userOptions = users.map((u) => ({ id: u.id, name: displayName(u) }));
 
   return (
     <div className="flex flex-col gap-6">
@@ -29,8 +39,22 @@ export default async function AjustesPage() {
       </div>
       <SettingsForm
         settings={settings}
-        users={users.map((u) => ({ id: u.id, name: displayName(u) }))}
+        users={userOptions}
         sendNow={{ weekly, nudge, streak, "on-this-day": onThisDay, anniversary, wrapped }}
+      />
+      <ExtraordinarySection
+        enabled={settings.extraordinaryResponsesEnabled}
+        url={`${getSiteUrl()}${EXTRAORDINARY_PATH}`}
+        users={userOptions}
+        yesterday={addDaysLocal(today, -1)}
+        grants={grants.map((g) => ({
+          id: g.id,
+          userName: displayName(g.user),
+          date: g.date,
+          dateLabel: capitalize(formatLocalDate(g.date)),
+          notifiedAt: g.notifiedAt?.toISOString() ?? null,
+          usedAt: g.usedAt?.toLocaleString("es-MX", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) ?? null,
+        }))}
       />
     </div>
   );

@@ -54,6 +54,9 @@ model User {
   inactivityNudges InactivityNudge[]
   engagementEmails EngagementEmail[]
   notifications    Notification[]
+  // Permisos de respuesta extraordinaria: los que recibió y los que dio (admin).
+  extraordinaryGrants      ExtraordinaryGrant[] @relation("ExtraordinaryGrantUser")
+  extraordinaryGrantsGiven ExtraordinaryGrant[] @relation("ExtraordinaryGrantAdmin")
 }
 
 // Reacción de un usuario a la respuesta de alguien en /boletines. `emoji`
@@ -241,6 +244,32 @@ model Settings {
   anniversaryEnabled  Boolean @default(true)
   wrappedEnabled      Boolean @default(true)
   welcomeEmailEnabled Boolean @default(true)
+
+  // Interruptor general de /respuesta-extraordinaria (ver ExtraordinaryGrant).
+  extraordinaryResponsesEnabled Boolean @default(false)
+}
+
+/// Permiso de un solo uso para mandar la respuesta de un día pasado desde
+/// /respuesta-extraordinaria, para compensar un día en que la app falló.
+/// Lo da un admin desde Ajustes y solo sirve mientras
+/// Settings.extraordinaryResponsesEnabled esté activo (ver
+/// src/lib/extraordinary.ts). La respuesta se guarda como cualquier otra:
+/// en /boletines no se distingue de las demás.
+model ExtraordinaryGrant {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation("ExtraordinaryGrantUser", fields: [userId], references: [id], onDelete: Cascade)
+  date        String // "YYYY-MM-DD", el día para el que puede responder
+  grantedById String?
+  grantedBy   User?     @relation("ExtraordinaryGrantAdmin", fields: [grantedById], references: [id], onDelete: SetNull)
+  // Cuándo salió el correo de "privilegio especial"; null mientras la
+  // página esté deshabilitada (sale al habilitarla).
+  notifiedAt  DateTime?
+  // Cuándo mandó su respuesta; ya no se puede volver a usar.
+  usedAt      DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@unique([userId, date])
 }
 
 /// Correo especial mandado a alguien (racha, "hace un año", aniversario,

@@ -40,6 +40,7 @@ src/
     login/                       # Login sin contraseña (enlace mágico o código)
     perfil/                      # Autoservicio: apodo y fecha de cumpleaños
     mis-respuestas/              # Historial propio
+    respuesta-extraordinaria/    # Responder un día pasado, con un privilegio de un solo uso del admin
     boletines/                   # Archivo de boletines enviados, interactivo (reacciones, comentarios)
     IMG/respuestas/[filename]/   # Sirve las fotos de respuestas, solo con sesión iniciada
     error.tsx, global-error.tsx, not-found.tsx
@@ -75,6 +76,8 @@ src/
     hero-photos.ts               # Sincroniza public/IMG con HeroPhoto y elige la foto del día
     phrases.ts, response-phrases.ts                # Frase del día / frases aportadas en respuestas
     response-photos.ts           # Fotos de respuestas: validar, guardar, borrar
+    save-response.ts             # Guardado común de una respuesta (diaria y extraordinaria)
+    extraordinary.ts, extraordinary-email.ts       # Respuestas extraordinarias: permisos y avisos
     prepare-photo.ts             # (navegador) Reduce la foto y la pasa a base64 antes de subirla
     reactions.ts                 # Agrupa reacciones por emoji con quién reaccionó
     emoji-data.ts                # Emojis rápidos, selector y emoticones ascii
@@ -141,6 +144,32 @@ prisma/schema.prisma             # Modelo de datos
    como `upsert` en `Response`, única por `(userId, date)`.
 3. Si `Settings.lockResponsesAfterSend` está activo, una vez enviado el
    boletín del día ya no se puede editar.
+
+### Respuestas extraordinarias (`/respuesta-extraordinaria`)
+
+Para cuando a alguien la app le falló y no pudo responder un día. Desde
+Ajustes, el admin habilita la página y le da a alguien un privilegio de
+un solo uso para un día pasado (`ExtraordinaryGrant`, único por persona y
+día, solo si ese día no tiene respuesta suya).
+
+- Al dar el privilegio con la página habilitada, o al habilitarla con
+  privilegios pendientes, a la persona le llega el correo de "privilegio
+  especial" con el botón a la página (`sendGrantEmail()`).
+- El formulario es el mismo de la home (`ResponseForm` con `action` y
+  `dateOptions`), más un selector con los días que tiene permitidos. El
+  guardado común vive en `src/lib/save-response.ts` (fuera de un archivo
+  `"use server"` para no exponerlo como acción).
+- `saveExtraordinaryResponse` se salta `lockResponsesAfterSend`, pero
+  aparta el permiso (`usedAt`) antes de guardar y lo suelta si falla.
+- No se vuelve a mandar el boletín ni cambia su snapshot: la respuesta
+  aparece en `/boletines`, que lee las respuestas en vivo, sin distinguirse
+  de las demás. Si ese día no salió boletín, igual se lista.
+- `notifyExtraordinaryResponse()` avisa por correo y en `/notificaciones`
+  a todos los activos menos a quien respondió: "Hay actualizaciones en el
+  boletín del…", sin decir quién. A los admins les llega la versión con
+  el nombre.
+- El borrador usa su propio prefijo (`wygh:extraordinaria:`), para que
+  no borre el de la home ni al revés.
 
 ### Fotos de las respuestas
 
@@ -349,6 +378,8 @@ Cumpleaños, Envíos, Comunicaciones, Ajustes.
   anota en `WeeklySummarySend` / `InactivityNudge` / `EngagementEmail`,
   así que la programación sigue igual. A mano, la racha le llega a quien
   lleve 7+ días y el resumen anual cubre el año en curso hasta ayer.
+  Al final, aparte del formulario porque manda correos, está la sección
+  de respuestas extraordinarias (ver arriba).
 
 ## Autoservicio del usuario
 
