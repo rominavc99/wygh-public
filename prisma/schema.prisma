@@ -77,8 +77,32 @@ model Group {
   inviteToken String? @unique
   createdAt DateTime @default(now())
 
-  members   GroupMember[]
-  responses ResponseGroup[]
+  // Ajustes del boletín de este grupo (antes vivían en Settings; la
+  // migración que los movió copió ahí los de ese momento). El nombre del
+  // grupo es el nombre de su boletín.
+  tagline          String  @default("Una nota diaria entre amigos")
+  // Admite el marcador {nombre}, que se reemplaza por el nombre de cada
+  // destinatario al enviar.
+  greetingTemplate String  @default("Hola, {nombre}, esto es lo que estarán haciendo tus amigos el día de hoy:")
+  sendTime         String  @default("20:00")
+  // Recordatorio 1 hora antes de sendTime a los miembros que no hayan
+  // respondido todavía ese día.
+  reminderEnabled  Boolean @default(true)
+  // Portada tipo periódico, arriba de las respuestas del día.
+  heroEnabled      Boolean @default(false)
+  heroTitle        String  @default("")
+  heroParagraph    String  @default("")
+  heroImageUrl     String  @default("")
+  heroLinkUrl      String  @default("")
+  heroLinkText     String  @default("Leer más")
+  // Frase del día fija a mano; vacío = una al azar (estable para la fecha).
+  selectedPhraseId String  @default("")
+
+  members     GroupMember[]
+  responses   ResponseGroup[]
+  sends       NewsletterSend[]
+  reminders   ReminderSend[]
+  dailyPicks  DailyPick[]
 }
 
 model GroupMember {
@@ -186,7 +210,9 @@ model CommentReaction {
 // envió (NewsletterSend.contentHtml), esto deja de tener efecto: lo
 // enviado queda congelado para siempre, sin importar qué pase acá después.
 model DailyPick {
-  date            String     @id
+  groupId         String
+  group           Group      @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  date            String
   heroPhotoId     String?
   heroPhoto       HeroPhoto? @relation(fields: [heroPhotoId], references: [id], onDelete: SetNull)
   // true si el admin la eligió a mano; false si quedó fija por resolución
@@ -194,6 +220,8 @@ model DailyPick {
   heroPhotoManual Boolean    @default(false)
   phraseId        String?
   phrase          Phrase?    @relation(fields: [phraseId], references: [id], onDelete: SetNull)
+
+  @@id([groupId, date])
 }
 
 model Response {
@@ -245,39 +273,22 @@ model Response {
   @@unique([userId, date])
 }
 
+// Ajustes globales. Los del boletín diario de cada grupo (saludo, hora,
+// recordatorio, portada, frase fija) viven en Group; newsletterName y
+// tagline quedan como nombre y lema del sitio.
 model Settings {
   id               Int     @id @default(1)
   newsletterName   String  @default("De regreso a casa")
   tagline          String  @default("Una nota diaria entre amigos")
-  // Saludo personalizado del boletín. Admite el marcador {nombre}, que se
-  // reemplaza por el nombre de cada destinatario al enviar.
-  greetingTemplate String  @default("Hola, {nombre}, esto es lo que estarán haciendo tus amigos el día de hoy:")
-  sendTime         String  @default("20:00")
+  // Interruptor general del envío automático de todos los grupos.
   autoSend         Boolean @default(true)
   fromName         String  @default("De regreso a casa")
   fromEmail        String  @default("")
-
-  // Recordatorio por correo 1 hora antes de sendTime, solo a quien no
-  // haya respondido todavía ese día.
-  reminderEnabled Boolean @default(true)
 
   // Si está activo, una vez que ya se mandó el boletín del día nadie puede
   // editar su respuesta de ese día (ver saveResponse en src/app/actions.ts
   // y el aviso de solo-lectura en src/app/page.tsx).
   lockResponsesAfterSend Boolean @default(true)
-
-  // Sección "hero" tipo portada de periódico, arriba de las respuestas del día.
-  heroEnabled   Boolean @default(false)
-  heroTitle     String  @default("")
-  heroParagraph String  @default("")
-  heroImageUrl  String  @default("")
-  heroLinkUrl   String  @default("")
-  heroLinkText  String  @default("Leer más")
-
-  // Frase del día que se muestra en la portada. Si está vacío, se elige
-  // una al azar entre las de Phrase (estable para esa fecha); si tiene un
-  // id, esa frase se usa siempre, sin importar el día.
-  selectedPhraseId String @default("")
 
   // Boletín de cumpleaños (ver BirthdayNewsletter): sale a birthdaySendTime
   // el día del cumpleaños de cada quien, además del boletín diario. Título,
@@ -378,7 +389,7 @@ model InactivityNudge {
   @@unique([userId, date])
 }
 
-// Frases cortas para la portada del boletín (ver Settings.selectedPhraseId).
+// Frases cortas para la portada del boletín (ver Group.selectedPhraseId).
 // El admin puede darlas de alta a mano en /admin/frases (sin autor/fecha),
 // o pueden venir del formulario diario (ver src/lib/response-phrases.ts),
 // en cuyo caso quedan con date = el día en que se mandaron y su autor.
@@ -393,7 +404,7 @@ model Phrase {
 }
 
 // Fotos disponibles en public/IMG para la portada del boletín. Si el admin
-// no fija Settings.heroImageUrl a mano, se usa una de acá: primero se busca
+// no fija Group.heroImageUrl a mano, se usa una de acá: primero se busca
 // una con `date` igual al día del envío, si no hay, se elige una al azar
 // (pero estable para esa fecha, ver src/lib/hero-photos.ts). Las que suben
 // los usuarios desde el formulario diario (ver src/lib/response-photos.ts)
@@ -410,19 +421,26 @@ model HeroPhoto {
   birthdayNewsletters BirthdayNewsletter[]
 }
 
-// Recordatorio enviado 1 hora antes de Settings.sendTime a quien no había
-// respondido todavía. Único por fecha, igual que NewsletterSend, para no
-// mandarlo dos veces el mismo día.
+// Recordatorio enviado 1 hora antes de Group.sendTime a quien no había
+// respondido todavía. Único por grupo y fecha, igual que NewsletterSend,
+// para no mandarlo dos veces el mismo día.
 model ReminderSend {
   id             String   @id @default(cuid())
-  date           String   @unique
+  groupId        String
+  group          Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  date           String
   sentAt         DateTime @default(now())
   recipientCount Int
+
+  @@unique([groupId, date])
 }
 
+/// Boletín diario de un grupo enviado un día (uno por grupo y fecha).
 model NewsletterSend {
   id             String   @id @default(cuid())
-  date           String   @unique
+  groupId        String
+  group          Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  date           String
   sentAt         DateTime @default(now())
   recipientCount Int
   responseCount  Int
@@ -450,10 +468,13 @@ model NewsletterSend {
   // en /boletines para miembros (ver src/app/boletines/page.tsx), pero
   // sigue visible/reenviable desde el panel admin.
   archived Boolean @default(false)
+
+  @@unique([groupId, date])
+  @@index([date])
 }
 
 // Boletín de cumpleaños: uno por persona y fecha, aparte del boletín diario
-// (NewsletterSend es único por fecha y ese día también sale el diario). La
+// (aparte de los NewsletterSend de ese día, que son por grupo). La
 // fila nace al resolver la foto de portada (vista previa del admin o envío)
 // y hace de DailyPick de esta edición: la foto sale de las que subió quien
 // cumple años y queda fija para que la vista previa y el envío coincidan.

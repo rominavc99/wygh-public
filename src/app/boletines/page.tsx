@@ -13,7 +13,7 @@ import { ZoomableImage } from "./photo-lightbox";
 export default async function BoletinesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ date?: string; cumple?: string }>;
+  searchParams: Promise<{ date?: string; cumple?: string; grupo?: string }>;
 }) {
   const session = await auth();
   if (!session?.user) redirect("/login");
@@ -21,10 +21,28 @@ export default async function BoletinesPage({
 
   const params = await searchParams;
 
+  // Cada quien ve el archivo de sus grupos (también de los que están en
+  // pausa); un admin, el de todos. Los grupos están aislados: un boletín
+  // solo muestra las respuestas que se mandaron a ese grupo.
+  const isAdmin = session.user.role === "ADMIN";
+  const groups = await prisma.group.findMany({
+    where: isAdmin ? {} : { members: { some: { userId: session.user.id } } },
+    orderBy: { name: "asc" },
+  });
+  const group = groups.find((g) => g.id === params.grupo) ?? groups[0] ?? null;
+  if (!group) {
+    return (
+      <BoletinesShell entries={[]} date="" cumple={null} groups={[]} groupId={null}>
+        {null}
+      </BoletinesShell>
+    );
+  }
+
   // Los boletines archivados no deben verse acá — ni en el selector ni
   // entrando directo con su fecha por la URL.
-  const [allSends, birthdayEditions, extraordinaryDays] = await Promise.all([
+  const [allSends, birthdayEditions, extraordinaryGrantDays] = await Promise.all([
     prisma.newsletterSend.findMany({
+      where: { groupId: group.id },
       select: { date: true, archived: true },
       orderBy: { date: "desc" },
     }),
@@ -42,6 +60,14 @@ export default async function BoletinesPage({
       distinct: ["date"],
     }),
   ]);
+  // De esos días, solo los que tienen alguna respuesta en este grupo.
+  const extraordinaryDays = extraordinaryGrantDays.length
+    ? await prisma.response.findMany({
+        where: { date: { in: extraordinaryGrantDays.map((d) => d.date) }, groups: { some: { groupId: group.id } } },
+        select: { date: true },
+        distinct: ["date"],
+      })
+    : [];
   const sendDates = new Set(allSends.map((s) => s.date));
   const sentDates = [
     ...allSends.filter((s) => !s.archived),
@@ -62,20 +88,22 @@ export default async function BoletinesPage({
   const cumple = params.cumple || selected?.cumple || null;
   const isArchived = !cumple && archivedDates.has(date);
 
+  const shell = { entries, date, groups: groups.map((g) => ({ id: g.id, name: g.name })), groupId: group.id };
+
   if (cumple) {
     return (
-      <BoletinesShell entries={entries} date={date} cumple={cumple}>
+      <BoletinesShell {...shell} cumple={cumple}>
         <BirthdayEditionView userId={cumple} date={date} currentUserId={session.user.id} />
       </BoletinesShell>
     );
   }
 
-  const mentionable = await mentionableUsers();
-  const [responses, settings, send] = isArchived
-    ? [[], null, null]
+  const mentionable = await mentionableUsers(group.id);
+  const [responses, send] = isArchived
+    ? [[], null]
     : await Promise.all([
         prisma.response.findMany({
-          where: { date },
+          where: { date, groups: { some: { groupId: group.id } } },
           include: {
             user: true,
             reactions: { include: { user: true } },
@@ -86,26 +114,25 @@ export default async function BoletinesPage({
           },
           orderBy: { user: { name: "asc" } },
         }),
-        prisma.settings.upsert({ where: { id: 1 }, create: { id: 1 }, update: {} }),
         prisma.newsletterSend.findUnique({
-          where: { date },
+          where: { groupId_date: { groupId: group.id, date } },
           select: { heroJson: true, contentHtml: true, contentText: true },
         }),
       ]);
 
   // La portada (título/párrafo/foto/frase) de un día ya enviado sale del
   // snapshot guardado en el envío, igual que el correo real — si se
-  // resolviera en vivo con los Ajustes actuales, preparar la portada del
+  // resolviera en vivo con los ajustes actuales del grupo, preparar la portada del
   // día siguiente cambiaría la de todos los boletines anteriores. Solo se
   // resuelve en vivo para un día sin enviar (o un envío tan viejo que no
   // tiene contenido congelado). Las respuestas de cada quien sí son
   // estables una vez enviado el boletín (no se pueden editar después, ver
   // Settings.lockResponsesAfterSend).
   const sentHero = send ? getSentHero(send) : null;
-  const hero = sentHero ?? (settings ? await resolveNewsletterHero(date, settings) : null);
+  const hero = sentHero ?? (isArchived ? null : await resolveNewsletterHero(date, group));
 
   return (
-    <BoletinesShell entries={entries} date={date} cumple={null}>
+    <BoletinesShell {...shell} cumple={null}>
       {isArchived ? (
         <p className="p-6 text-center text-sm text-ink-soft">Este boletín fue archivado por el admin. 📦</p>
       ) : (
@@ -137,13 +164,18 @@ function BoletinesShell({
   entries,
   date,
   cumple,
+  groups,
+  groupId,
   children,
 }: {
   entries: Entry[];
   date: string;
   cumple: string | null;
+  groups: { id: string; name: string }[];
+  groupId: string | null;
   children: React.ReactNode;
 }) {
+  const groupParam = groupId ? `&grupo=${groupId}` : "";
   return (
     <main className="relative z-10 flex flex-1 justify-center px-4 py-10">
       <div className="w-full max-w-5xl">
@@ -161,10 +193,29 @@ function BoletinesShell({
           </Link>
         </div>
 
+        {groups.length > 1 ? (
+          <nav className="mb-4 flex flex-wrap gap-2 px-1" aria-label="Grupos">
+            {groups.map((g) => (
+              <Link
+                key={g.id}
+                href={`/boletines?grupo=${g.id}`}
+                aria-current={g.id === groupId ? "page" : undefined}
+                className={`chip ${g.id === groupId ? "chip-pink" : "chip-neutral"}`}
+              >
+                🫂 {g.name}
+              </Link>
+            ))}
+          </nav>
+        ) : null}
+
         {entries.length === 0 ? (
           <div className="win">
             <div className="win-body">
-              <p className="text-sm text-ink-soft">Todavía no se ha enviado ningún boletín. 🦆</p>
+              <p className="text-sm text-ink-soft">
+                {groupId
+                  ? "Todavía no se ha enviado ningún boletín en este grupo. 🦆"
+                  : "Todavía no estás en ningún grupo, así que no hay boletines que mostrar. 🦆"}
+              </p>
             </div>
           </div>
         ) : (
@@ -177,6 +228,7 @@ function BoletinesShell({
                 </div>
 
                 <form className="flex items-end gap-2 border-b border-panel-edge p-3">
+                  {groupId ? <input type="hidden" name="grupo" value={groupId} /> : null}
                   <div className="flex flex-1 flex-col gap-1">
                     <label className="text-xs font-bold text-ink-soft">Ir a una fecha</label>
                     <input type="date" name="date" defaultValue={date} className="xp-input text-sm" />
@@ -189,7 +241,9 @@ function BoletinesShell({
                 <ul className="flex overflow-x-auto md:block md:max-h-[680px] md:overflow-x-visible md:overflow-y-auto">
                   {entries.map((e) => {
                     const active = e.date === date && e.cumple === cumple;
-                    const href = e.cumple ? `/boletines?date=${e.date}&cumple=${e.cumple}` : `/boletines?date=${e.date}`;
+                    const href = e.cumple
+                      ? `/boletines?date=${e.date}&cumple=${e.cumple}${groupParam}`
+                      : `/boletines?date=${e.date}${groupParam}`;
                     return (
                       <li key={`${e.date}-${e.cumple ?? "diario"}`} className="flex-none md:flex-auto">
                         <Link
@@ -320,7 +374,11 @@ async function BirthdayEditionView({ userId, date, currentUserId }: { userId: st
 }
 
 /** Personas que se pueden etiquetar en los comentarios (las activas). */
-async function mentionableUsers(): Promise<{ id: string; name: string }[]> {
-  const users = await prisma.user.findMany({ where: { active: true }, select: { id: true, name: true, username: true } });
+/** Personas que se pueden etiquetar con @: las activas del grupo (o todas, sin grupo). */
+async function mentionableUsers(groupId?: string): Promise<{ id: string; name: string }[]> {
+  const users = await prisma.user.findMany({
+    where: { active: true, ...(groupId ? { groupMemberships: { some: { groupId } } } : {}) },
+    select: { id: true, name: true, username: true },
+  });
   return users.map((u) => ({ id: u.id, name: displayName(u) })).sort((a, b) => a.name.localeCompare(b.name));
 }

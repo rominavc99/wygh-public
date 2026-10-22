@@ -109,13 +109,27 @@ erDiagram
     User ||--o{ GroupMember : "pertenece a"
     Group ||--o{ ResponseGroup : "recibe"
     Response ||--o{ ResponseGroup : "se manda a"
+    Group ||--o{ NewsletterSend : "envía"
+    Group ||--o{ ReminderSend : "recuerda"
+    Group ||--o{ DailyPick : "portada del día"
 
     Group {
         string id PK "el inicial es 'grupo-inicial'"
-        string name UK
+        string name UK "también es el nombre de su boletín"
         boolean suspended "pausado: no envía ni aparece al responder"
         string inviteToken UK "nullable; enlace para unirse, null = desactivado"
         datetime createdAt
+        string tagline
+        string greetingTemplate "admite {nombre}"
+        string sendTime "HH:MM, hora local del servidor"
+        boolean reminderEnabled "1 h antes de sendTime"
+        boolean heroEnabled
+        string heroTitle
+        string heroParagraph
+        string heroImageUrl "vacío = foto automática"
+        string heroLinkUrl
+        string heroLinkText
+        string selectedPhraseId "vacío = frase automática (sin FK real)"
     }
 
     GroupMember {
@@ -147,22 +161,12 @@ erDiagram
 
     Settings {
         int id PK "singleton, siempre 1"
-        string newsletterName
-        string tagline
-        string greetingTemplate "admite {nombre}"
-        string sendTime "HH:MM, hora local del servidor"
-        boolean autoSend
-        boolean reminderEnabled "1 h antes de sendTime"
+        string newsletterName "nombre del sitio"
+        string tagline "lema del sitio"
+        boolean autoSend "interruptor de todos los grupos"
         boolean lockResponsesAfterSend
         string fromName
         string fromEmail
-        boolean heroEnabled
-        string heroTitle
-        string heroParagraph
-        string heroImageUrl "vacío = foto automática"
-        string heroLinkUrl
-        string heroLinkText
-        string selectedPhraseId "vacío = frase automática (sin FK real)"
         boolean birthdayEnabled
         string birthdaySendTime "HH:MM"
         string birthdayGreetingTemplate "admite {nombre}"
@@ -200,6 +204,7 @@ erDiagram
     }
 
     DailyPick {
+        string groupId PK,FK
         string date PK "YYYY-MM-DD"
         string heroPhotoId FK "nullable"
         boolean heroPhotoManual "elegida a mano por el admin"
@@ -208,7 +213,8 @@ erDiagram
 
     NewsletterSend {
         string id PK
-        string date UK "una fila por día, idempotencia"
+        string groupId FK "único con date: uno por grupo y día"
+        string date
         datetime sentAt
         int recipientCount
         int responseCount
@@ -223,7 +229,8 @@ erDiagram
 
     ReminderSend {
         string id PK
-        string date UK "una fila por día, idempotencia"
+        string groupId FK "único con date: uno por grupo y día"
+        string date
         datetime sentAt
         int recipientCount
     }
@@ -363,8 +370,13 @@ erDiagram
   autor (`ensureResponseGroups()` en `src/lib/groups.ts`).
 - **Grupo inicial**: la migración que introdujo los grupos creó
   `grupo-inicial` (con el nombre del boletín de ese momento) con todos los
-  usuarios y todas las respuestas que ya existían. Quien se da de alta
-  entra a todos los grupos no suspendidos.
+  usuarios y todas las respuestas que ya existían. Al dar de alta a
+  alguien se eligen sus grupos.
+- **Ajustes del boletín por grupo**: saludo, hora, recordatorio, portada
+  y frase fija viven en `Group` (antes en `Settings`; la migración los
+  copió al grupo inicial). `NewsletterSend`, `ReminderSend` y `DailyPick`
+  son por `(groupId, date)`; lo enviado antes de los grupos quedó en el
+  grupo inicial.
 
 ### Interacción
 
@@ -390,13 +402,15 @@ erDiagram
   primera vez que se resuelven (o cuando el admin las elige a mano o las
   re-rola), para que la vista previa y el envío real coincidan y la
   portada no cambie sola a media tarde.
-- **`Settings.selectedPhraseId`** no es FK real (vacío = modo automático);
-  se resuelve en `src/lib/phrases.ts`.
+- **`Group.selectedPhraseId`** no es FK real (vacío = modo automático);
+  se resuelve en `src/lib/phrases.ts`. La foto y la frase automáticas de
+  un grupo salen del catálogo y de las respuestas mandadas a ese grupo
+  (`heroPhotosForGroup()`, `phrasesForGroup()`).
 
 ### Envíos
 
-- **Idempotencia**: `NewsletterSend` y `ReminderSend` tienen `date` único,
-  y `BirthdayNewsletter` es único por `(userId, date)`. El worker revisa
+- **Idempotencia**: `NewsletterSend` y `ReminderSend` son únicos por
+  `(groupId, date)`, y `BirthdayNewsletter` por `(userId, date)`. El worker revisa
   si ya existe el envío antes de mandar, así que aunque el cron corra de
   más o el proceso se reinicie, nunca sale dos veces lo mismo (salvo
   reenvío forzado desde el panel).
@@ -404,10 +418,10 @@ erDiagram
   `BirthdayNewsletter` guardan el contenido tal cual salió
   (`contentHtml`, `contentText`, `heroJson` y, en cumpleaños,
   `momentsJson`). `/boletines` y el panel muestran eso en vez de
-  reconstruirlo con los Ajustes actuales, que pueden haber cambiado. Los
+  reconstruirlo con los ajustes actuales, que pueden haber cambiado. Los
   envíos anteriores a esos campos los tienen vacíos y se reconstruyen.
 - **`BirthdayNewsletter`** es tabla aparte de `NewsletterSend` porque el
-  día del cumpleaños también sale el diario (único por fecha). La fila
+  día del cumpleaños también salen los diarios de cada grupo. La fila
   nace al resolver la foto de portada (vista previa o envío) y hace de
   `DailyPick` de esa edición; `sentAt` se llena al enviarse.
 - **`Communication`** son correos sueltos del admin, de inmediato o

@@ -81,7 +81,7 @@ async function jobsFor(kind: ManualEmailKind, today: string, userId?: string): P
       if (!userId) return [];
       const user = await prisma.user.findUnique({ where: { id: userId } });
       if (!user?.active) return [];
-      return [{ name: displayName(user), send: async () => deliverNow(user, "welcome", await welcomeParts(displayName(user))) }];
+      return [{ name: displayName(user), send: async () => deliverNow(user, "welcome", await welcomeParts(displayName(user), user.id)) }];
     }
   }
 }

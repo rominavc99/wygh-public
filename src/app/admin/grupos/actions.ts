@@ -124,3 +124,74 @@ export async function inviteToGroup(groupId: string, _prev: GroupFormState, form
     message: sent === total ? `Invitación enviada a ${sent} persona${sent === 1 ? "" : "s"}. ✉️` : `Se mandaron ${sent} de ${total} invitaciones.`,
   };
 }
+
+const optionalUrl = z
+  .string()
+  .trim()
+  .max(500)
+  .refine((v) => v === "" || /^https?:\/\//i.test(v), "La URL debe empezar con http:// o https://");
+
+const newsletterSchema = z
+  .object({
+    tagline: z.string().trim().max(200),
+    greetingTemplate: z
+      .string()
+      .trim()
+      .min(1, "Escribe un saludo.")
+      .max(300)
+      .refine((v) => v.includes("{nombre}"), 'El saludo debe incluir el marcador "{nombre}".'),
+    sendTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Usa el formato HH:MM."),
+    reminderEnabled: z.boolean(),
+    heroEnabled: z.boolean(),
+    heroTitle: z.string().trim().max(140),
+    heroParagraph: z.string().trim().max(600),
+    heroImageUrl: optionalUrl,
+    heroLinkUrl: optionalUrl,
+    heroLinkText: z.string().trim().max(40).or(z.literal("")),
+    selectedPhraseId: z.string(),
+  })
+  .refine((v) => !v.heroEnabled || v.heroTitle.length > 0, {
+    message: "Si activas la portada, escribe un título.",
+    path: ["heroTitle"],
+  });
+
+export type GroupNewsletterState =
+  | { status: "idle" }
+  | { status: "success" }
+  | { status: "error"; message?: string; fieldErrors?: Record<string, string> };
+
+/** Ajustes del boletín de un grupo: saludo, hora, recordatorio, portada y frase fija. */
+export async function updateGroupNewsletter(
+  groupId: string,
+  _prev: GroupNewsletterState,
+  formData: FormData
+): Promise<GroupNewsletterState> {
+  await requireAdmin();
+  const parsed = newsletterSchema.safeParse({
+    tagline: formData.get("tagline"),
+    greetingTemplate: formData.get("greetingTemplate"),
+    sendTime: formData.get("sendTime"),
+    reminderEnabled: formData.get("reminderEnabled") === "on",
+    heroEnabled: formData.get("heroEnabled") === "on",
+    heroTitle: formData.get("heroTitle"),
+    heroParagraph: formData.get("heroParagraph"),
+    heroImageUrl: formData.get("heroImageUrl"),
+    heroLinkUrl: formData.get("heroLinkUrl"),
+    heroLinkText: formData.get("heroLinkText"),
+    selectedPhraseId: formData.get("selectedPhraseId") ?? "",
+  });
+  if (!parsed.success) {
+    const fieldErrors: Record<string, string> = {};
+    for (const issue of parsed.error.issues) {
+      const key = issue.path[0];
+      if (typeof key === "string" && !fieldErrors[key]) fieldErrors[key] = issue.message;
+    }
+    return { status: "error", fieldErrors, message: "Revisa los campos marcados." };
+  }
+
+  await prisma.group.update({ where: { id: groupId }, data: parsed.data });
+  revalidateGroup(groupId);
+  revalidatePath("/admin/boletin");
+  revalidatePath("/admin/frases");
+  return { status: "success" };
+}

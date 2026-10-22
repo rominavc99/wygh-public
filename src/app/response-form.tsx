@@ -23,6 +23,9 @@ type ExistingResponse = {
 
 type HomeStatus = "onTime" | "later" | "away" | "stayed";
 
+/** Un grupo al que puede ir la respuesta (ver responseGroupOptions en src/lib/groups.ts). */
+export type FormGroup = { id: string; name: string; checked: boolean; disabled: boolean };
+
 /**
  * Lo que la persona llevaba escrito, guardado en el navegador (localStorage)
  * mientras llena el formulario — si el envío falla (sin internet, un
@@ -109,11 +112,14 @@ export function ResponseForm({
   action = saveResponse,
   dateOptions,
   dateMax,
+  groups = [],
 }: {
   existing: ExistingResponse;
   draftKey: string;
   /** Server Action que guarda; por default la del formulario diario. */
   action?: SaveAction;
+  /** Grupos de la persona. Solo se pide elegir si hay dos o más que se puedan elegir. */
+  groups?: FormGroup[];
   /** Si viene, se pide elegir el día entre estos (formulario de respuestas extraordinarias). */
   dateOptions?: { value: string; label: string }[];
   /** Si viene (y no dateOptions), se pide cualquier día hasta este, con calendario (admins). */
@@ -139,6 +145,7 @@ export function ResponseForm({
       action={action}
       dateOptions={dateOptions}
       dateMax={dateMax}
+      groups={groups}
       onDiscardDraft={() => {
         clearDraft(draftKey);
         setDraft(null);
@@ -154,6 +161,7 @@ function ResponseFormFields({
   action,
   dateOptions,
   dateMax,
+  groups,
   onDiscardDraft,
 }: {
   existing: ExistingResponse;
@@ -162,6 +170,7 @@ function ResponseFormFields({
   action: SaveAction;
   dateOptions?: { value: string; label: string }[];
   dateMax?: string;
+  groups: FormGroup[];
   onDiscardDraft: () => void;
 }) {
   const [state, setState] = useState<SaveResponseState>({ status: "idle" });
@@ -538,8 +547,8 @@ function ResponseFormFields({
       <div className="flex flex-col gap-1.5">
         <label className="text-sm font-bold text-ink">Frase del día (opcional)</label>
         <p className="text-xs text-ink-faint">
-          Si mandas una, entra al catálogo de frases y puede aparecer en la portada de
-          cualquier boletín, con tu nombre.
+          Si mandas una, entra al catálogo de frases y puede aparecer en la portada del
+          boletín de los grupos a los que mandes tu respuesta, con tu nombre.
         </p>
         <input
           type="text"
@@ -551,6 +560,8 @@ function ResponseFormFields({
         {fieldErrors.phraseText ? <p className="text-sm text-danger">{fieldErrors.phraseText}</p> : null}
       </div>
 
+      <GroupPicker groups={groups} error={fieldErrors.groups} />
+
       {state.status === "error" && state.message ? (
         <p role="alert" className="text-sm text-danger">
           {state.message}
@@ -561,6 +572,59 @@ function ResponseFormFields({
         {pending ? "Guardando…" : existing ? "Actualizar" : "Enviar →"}
       </button>
     </form>
+  );
+}
+
+/**
+ * A qué grupos va la respuesta. Con un solo grupo elegible no se muestra:
+ * va directo ahí. Por defecto vienen todos marcados; los que ya mandaron su
+ * boletín salen deshabilitados para que se entienda por qué.
+ */
+function GroupPicker({ groups, error }: { groups: FormGroup[]; error?: string }) {
+  const selectable = groups.filter((g) => !g.disabled);
+  const [checked, setChecked] = useState(() => new Set(selectable.filter((g) => g.checked).map((g) => g.id)));
+  if (selectable.length < 2) return null;
+
+  const allChecked = selectable.every((g) => checked.has(g.id));
+  const toggle = (id: string) =>
+    setChecked((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  return (
+    <fieldset className="flex flex-col gap-2 rounded-lg border border-panel-edge bg-panel-2 p-3">
+      <legend className="px-1 text-sm font-bold text-ink">🫂 ¿A qué grupos la mandas?</legend>
+      <label className="flex items-center gap-2 text-sm font-bold text-ink">
+        <input
+          type="checkbox"
+          checked={allChecked}
+          onChange={() => setChecked(allChecked ? new Set() : new Set(selectable.map((g) => g.id)))}
+          className="h-4 w-4 accent-[var(--accent-pink)]"
+        />
+        A todos mis grupos
+      </label>
+      <div className="ml-6 flex flex-wrap gap-x-4 gap-y-1">
+        {groups.map((g) => (
+          <label key={g.id} className={`flex items-center gap-1.5 text-sm ${g.disabled ? "text-ink-faint" : "text-ink"}`}>
+            <input
+              type="checkbox"
+              name={g.disabled ? undefined : "groupIds"}
+              value={g.id}
+              checked={g.disabled ? g.checked : checked.has(g.id)}
+              disabled={g.disabled}
+              onChange={() => toggle(g.id)}
+              className="h-4 w-4 accent-[var(--accent-pink)]"
+            />
+            {g.name}
+            {g.disabled ? <span className="text-xs">(su boletín ya salió)</span> : null}
+          </label>
+        ))}
+      </div>
+      {error ? <p className="text-sm text-danger">{error}</p> : null}
+    </fieldset>
   );
 }
 

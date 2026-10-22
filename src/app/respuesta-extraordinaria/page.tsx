@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { addDaysLocal, formatLocalDate, todayLocalDate } from "@/lib/date";
 import { capitalize } from "@/lib/newsletter";
 import { EXTRAORDINARY_PATH, usableGrants, recentlyUsedGrants } from "@/lib/extraordinary";
+import { responseGroupOptions } from "@/lib/groups";
 import { ResponseForm } from "../response-form";
 import { saveExtraordinaryResponse } from "./actions";
 
@@ -21,12 +22,14 @@ export default async function RespuestaExtraordinariaPage() {
   if (!session?.user) redirect(`/login?${new URLSearchParams({ callbackUrl: EXTRAORDINARY_PATH })}`);
   await markSeen(session.user.id);
 
-  const [settings, grants, used] = await Promise.all([
+  const [settings, grants, used, groupOptions] = await Promise.all([
     prisma.settings.upsert({ where: { id: 1 }, create: { id: 1 }, update: {} }),
     usableGrants(session.user.id),
     // Las que acaba de mandar, para confirmarle que ya quedaron.
     recentlyUsedGrants(session.user.id),
+    responseGroupOptions(session.user.id, todayLocalDate(), null),
   ]);
+  const formGroups = groupOptions.map((g) => ({ id: g.id, name: g.name, checked: true, disabled: false }));
   const enabled = settings.extraordinaryResponsesEnabled;
   const available = enabled ? grants : [];
   const isAdmin = session.user.role === "ADMIN";
@@ -90,6 +93,7 @@ export default async function RespuestaExtraordinariaPage() {
                   draftKey={`wygh:extraordinaria:${session.user.id}`}
                   action={saveExtraordinaryResponse}
                   dateMax={addDaysLocal(todayLocalDate(), -1)}
+                  groups={formGroups}
                 />
               </div>
             ) : available.length ? (
@@ -107,6 +111,7 @@ export default async function RespuestaExtraordinariaPage() {
                   draftKey={`wygh:extraordinaria:${session.user.id}`}
                   action={saveExtraordinaryResponse}
                   dateOptions={available.map((g) => ({ value: g.date, label: capitalize(formatLocalDate(g.date)) }))}
+                  groups={formGroups}
                 />
               </div>
             ) : (

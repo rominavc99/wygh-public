@@ -5,6 +5,7 @@ import { inviteUrl } from "@/lib/groups";
 import { avatarGradient } from "@/lib/avatar";
 import { setGroupSuspended, setInviteLink, removeGroupMember } from "../actions";
 import { RenameGroupForm, PeoplePickerForm, CopyLinkButton } from "../group-forms";
+import { GroupNewsletterForm } from "../group-newsletter-form";
 
 export default async function GrupoPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -14,6 +15,7 @@ export default async function GrupoPage({ params }: { params: Promise<{ id: stri
   });
   if (!group) notFound();
 
+  const phrases = await prisma.phrase.findMany({ orderBy: { createdAt: "asc" }, select: { id: true, text: true } });
   const memberIds = new Set(group.members.map((m) => m.userId));
   const others = (await prisma.user.findMany({ where: { active: true }, orderBy: { name: "asc" } }))
     .filter((u) => !memberIds.has(u.id))
@@ -52,6 +54,20 @@ export default async function GrupoPage({ params }: { params: Promise<{ id: stri
 
       <section className="flex flex-col gap-3 rounded-xl border border-panel-edge bg-panel-2 p-5">
         <RenameGroupForm groupId={group.id} name={group.name} />
+        <p className="text-xs text-ink-faint">Es también el nombre del boletín del grupo (asunto y título del correo).</p>
+      </section>
+
+      <section className="flex flex-col gap-3 rounded-xl border border-panel-edge bg-panel-2 p-5">
+        <div>
+          <h3 className="font-bold text-ink">💌 Boletín del grupo</h3>
+          <p className="text-xs text-ink-soft">
+            Solo lleva las respuestas que se mandaron a este grupo y le llega solo a sus miembros.{" "}
+            <Link href={`/admin/boletin?grupo=${group.id}`} className="underline">
+              Ver vista previa →
+            </Link>
+          </p>
+        </div>
+        <GroupNewsletterForm group={group} phrases={phrases} />
       </section>
 
       <section className="flex flex-col gap-3 rounded-xl border border-panel-edge bg-panel-2 p-5">

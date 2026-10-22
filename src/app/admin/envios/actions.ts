@@ -7,11 +7,11 @@ import { requireAdmin } from "@/lib/auth-guards";
 export async function toggleArchived(formData: FormData) {
   await requireAdmin();
 
-  const date = formData.get("date");
+  const id = formData.get("id");
   const nextArchived = formData.get("nextArchived") === "true";
-  if (typeof date !== "string" || !date) return;
+  if (typeof id !== "string" || !id) return;
 
-  await prisma.newsletterSend.update({ where: { date }, data: { archived: nextArchived } });
+  await prisma.newsletterSend.update({ where: { id }, data: { archived: nextArchived } });
 
   revalidatePath("/admin/envios");
   revalidatePath("/boletines");
