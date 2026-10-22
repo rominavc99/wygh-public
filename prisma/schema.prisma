@@ -58,6 +58,50 @@ model User {
   // Permisos de respuesta extraordinaria: los que recibió y los que dio (admin).
   extraordinaryGrants      ExtraordinaryGrant[] @relation("ExtraordinaryGrantUser")
   extraordinaryGrantsGiven ExtraordinaryGrant[] @relation("ExtraordinaryGrantAdmin")
+  groupMemberships GroupMember[]
+}
+
+/// Grupo de amigos con su propio boletín (ver src/lib/groups.ts). Solo los
+/// admins los crean y gestionan; una persona puede estar en varios, y al
+/// responder elige a cuáles manda su respuesta (ResponseGroup). Los grupos
+/// están aislados entre sí. La migración que los introdujo creó uno inicial
+/// con todos los usuarios y todas las respuestas que ya existían.
+model Group {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  /// Pausado por un admin: no se envía su boletín ni aparece al responder,
+  /// pero sus miembros siguen viendo el historial.
+  suspended Boolean  @default(false)
+  /// Enlace para unirse (/grupos/unirse/<token>); null = desactivado.
+  /// Regenerarlo invalida el anterior.
+  inviteToken String? @unique
+  createdAt DateTime @default(now())
+
+  members   GroupMember[]
+  responses ResponseGroup[]
+}
+
+model GroupMember {
+  groupId  String
+  group    Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  userId   String
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  joinedAt DateTime @default(now())
+
+  @@id([groupId, userId])
+  @@index([userId])
+}
+
+/// A qué grupos mandó alguien su respuesta del día. Una misma respuesta
+/// puede ir a varios grupos.
+model ResponseGroup {
+  responseId String
+  response   Response @relation(fields: [responseId], references: [id], onDelete: Cascade)
+  groupId    String
+  group      Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@id([responseId, groupId])
+  @@index([groupId])
 }
 
 // Reacción de un usuario a la respuesta de alguien en /boletines. `emoji`
@@ -159,6 +203,7 @@ model Response {
   date      String
   reactions Reaction[]
   comments  Comment[]
+  groups    ResponseGroup[]
 
   // Si mandó una frase para el catálogo ese día (ver src/lib/response-phrases.ts):
   // el texto se guarda aquí para poder precargarlo al editar la respuesta, y

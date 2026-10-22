@@ -8,6 +8,7 @@ import {
   upsertHeroPhotoForResponse,
 } from "@/lib/response-photos";
 import { upsertPhraseForResponse, deletePhraseForResponse } from "@/lib/response-phrases";
+import { ensureResponseGroups } from "@/lib/groups";
 
 export type SaveResponseState =
   | { status: "idle" }
@@ -78,11 +79,12 @@ export async function writeResponse(
     phraseId = null;
   }
 
-  await prisma.response.upsert({
+  const saved = await prisma.response.upsert({
     where: { userId_date: { userId, date } },
     create: { userId, date, ...parsed.data, phraseId },
     update: { ...parsed.data, phraseId },
   });
+  await ensureResponseGroups(saved.id, userId);
 
   return { status: "success" };
 }

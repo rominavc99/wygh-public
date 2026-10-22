@@ -101,6 +101,35 @@ erDiagram
     }
 ```
 
+### Grupos
+
+```mermaid
+erDiagram
+    Group ||--o{ GroupMember : "tiene"
+    User ||--o{ GroupMember : "pertenece a"
+    Group ||--o{ ResponseGroup : "recibe"
+    Response ||--o{ ResponseGroup : "se manda a"
+
+    Group {
+        string id PK "el inicial es 'grupo-inicial'"
+        string name UK
+        boolean suspended "pausado: no envía ni aparece al responder"
+        string inviteToken UK "nullable; enlace para unirse, null = desactivado"
+        datetime createdAt
+    }
+
+    GroupMember {
+        string groupId PK,FK
+        string userId PK,FK
+        datetime joinedAt
+    }
+
+    ResponseGroup {
+        string responseId PK,FK
+        string groupId PK,FK
+    }
+```
+
 ### Boletines, portada y envíos
 
 ```mermaid
@@ -322,6 +351,20 @@ erDiagram
 - **Frase de la respuesta**: `phraseText` guarda el texto (para precargar
   el formulario al editar) y `phraseId` apunta a la fila creada en
   `Phrase`, para actualizarla en vez de duplicarla. No es FK real.
+
+### Grupos
+
+- **`Group`**: cada grupo tiene su propio boletín y está aislado de los
+  demás. Solo los admins los crean y gestionan. Una persona puede estar en
+  varios (`GroupMember`).
+- **`ResponseGroup`**: a qué grupos va cada respuesta. Una misma
+  respuesta (una fila en `Response`) puede ir a varios grupos. Si al
+  guardarla no va a ninguno, se manda a todos los grupos activos de su
+  autor (`ensureResponseGroups()` en `src/lib/groups.ts`).
+- **Grupo inicial**: la migración que introdujo los grupos creó
+  `grupo-inicial` (con el nombre del boletín de ese momento) con todos los
+  usuarios y todas las respuestas que ya existían. Quien se da de alta
+  entra a todos los grupos no suspendidos.
 
 ### Interacción
 
