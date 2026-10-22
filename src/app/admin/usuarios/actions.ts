@@ -7,7 +7,7 @@ import { requireAdmin } from "@/lib/auth-guards";
 import { userSchema } from "@/lib/user-schema";
 import { resetRateLimit, loginEmailRateKey } from "@/lib/rate-limit";
 import { sendWelcomeEmail } from "@/lib/send-extras";
-import { addNewUserToDefaultGroups } from "@/lib/groups";
+import { addUserToGroups } from "@/lib/groups";
 
 export type UserFormState =
   | { status: "idle" }
@@ -51,7 +51,8 @@ export async function createUser(
   let createdId: string;
   try {
     createdId = (await prisma.user.create({ data: parsed.data })).id;
-    await addNewUserToDefaultGroups(createdId);
+    const groupIds = formData.getAll("groupIds").filter((v): v is string => typeof v === "string");
+    await addUserToGroups(createdId, groupIds);
     // Si la persona intentó entrar antes de existir, pudo haber gastado su
     // límite de enlaces — que pueda entrar de inmediato.
     resetRateLimit(loginEmailRateKey(parsed.data.email));

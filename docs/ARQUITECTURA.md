@@ -41,6 +41,7 @@ src/
     perfil/                      # Autoservicio: apodo y fecha de cumpleaños
     mis-respuestas/              # Historial propio
     respuesta-extraordinaria/    # Responder un día pasado, con un privilegio de un solo uso del admin
+    grupos/unirse/[token]/       # Unirse a un grupo con su enlace de invitación
     boletines/                   # Archivo de boletines enviados, interactivo (reacciones, comentarios)
     IMG/respuestas/[filename]/   # Sirve las fotos de respuestas, solo con sesión iniciada
     error.tsx, global-error.tsx, not-found.tsx
@@ -78,6 +79,7 @@ src/
     response-photos.ts           # Fotos de respuestas: validar, guardar, borrar
     save-response.ts             # Guardado común de una respuesta (diaria y extraordinaria)
     extraordinary.ts, extraordinary-email.ts       # Respuestas extraordinarias: permisos y avisos
+    groups.ts, group-email.ts                      # Grupos: membresía, a qué grupos va cada respuesta, invitaciones
     prepare-photo.ts             # (navegador) Reduce la foto y la pasa a base64 antes de subirla
     reactions.ts                 # Agrupa reacciones por emoji con quién reaccionó
     emoji-data.ts                # Emojis rápidos, selector y emoticones ascii
@@ -360,8 +362,8 @@ worker manda a todos los activos un boletín extra
 
 ## Panel de administración (`/admin/*`)
 
-Pestañas: Estadísticas, Respuestas, Usuarios, Boletín, Fotos, Frases,
-Cumpleaños, Envíos, Comunicaciones, Ajustes.
+Pestañas: Estadísticas, Respuestas, Usuarios, Grupos, Boletín, Fotos,
+Frases, Cumpleaños, Envíos, Comunicaciones, Ajustes.
 
 - **Estadísticas**: dashboard de participación por periodo (7/30/90
   días o todo): participación diaria y por día de la semana, ranking de
@@ -373,7 +375,17 @@ Cumpleaños, Envíos, Comunicaciones, Ajustes.
   activar/desactivar. El `<select>` de rol se deshabilita en tu propia
   fila para no quitarte el admin por accidente; como un `<select
   disabled>` no viaja en el `FormData`, se reemplaza por un
-  `<input type="hidden">` con el rol actual.
+  `<input type="hidden">` con el rol actual. Al dar de alta a alguien se
+  eligen sus grupos (vienen marcados los que no están en pausa), y cada
+  fila muestra a qué grupos pertenece.
+- **Grupos** (`/admin/grupos`): crear, renombrar y suspender (pausa)
+  grupos, agregar o quitar miembros a mano, y el enlace para unirse
+  (crear, copiar, regenerar o desactivar). "Invitar amigos" manda a los
+  usuarios activos que se elijan un correo con ese enlace
+  (`sendGroupInvites()` en `src/lib/groups.ts`). El enlace lleva a
+  `/grupos/unirse/<token>`, que pide sesión (no crea cuentas) y une con
+  un botón, no al abrir la página, porque algunos correos abren los
+  enlaces solos para revisarlos. Un grupo en pausa no admite gente nueva.
 - **Boletín**: vista previa exacta del día (o de cualquier fecha), elegir
   o re-rolar foto y frase, envío manual o reenvío.
 - **Fotos**: catálogo sincronizado con `public/IMG` más las fotos de

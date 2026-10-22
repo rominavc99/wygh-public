@@ -16,7 +16,7 @@ type User = {
 
 const initialState: UserFormState = { status: "idle" };
 
-export function UserRow({ user, isSelf }: { user: User; isSelf: boolean }) {
+export function UserRow({ user, groupNames, isSelf }: { user: User; groupNames: string[]; isSelf: boolean }) {
   const [editing, setEditing] = useState(false);
   const [state, formAction, pending] = useActionState(updateUser, initialState);
   const fieldErrors = state.status === "error" ? state.fieldErrors ?? {} : {};
@@ -92,6 +92,9 @@ export function UserRow({ user, isSelf }: { user: User; isSelf: boolean }) {
             {!user.active ? <span className="chip chip-neutral ml-1">Inactivo</span> : null}
           </p>
           <p className="text-sm text-ink-soft">{user.email}</p>
+          <p className="text-xs text-ink-faint">
+            🫂 {groupNames.length ? groupNames.join(", ") : "Sin grupo"}
+          </p>
         </div>
       </div>
       <div className="flex gap-2">

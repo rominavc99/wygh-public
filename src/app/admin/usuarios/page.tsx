@@ -5,7 +5,13 @@ import { UserRow } from "./user-row";
 
 export default async function UsuariosPage() {
   const session = await auth();
-  const users = await prisma.user.findMany({ orderBy: { name: "asc" } });
+  const [users, groups] = await Promise.all([
+    prisma.user.findMany({
+      orderBy: { name: "asc" },
+      include: { groupMemberships: { include: { group: { select: { name: true } } } } },
+    }),
+    prisma.group.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, suspended: true } }),
+  ]);
 
   return (
     <div className="flex flex-col gap-6">
@@ -17,11 +23,16 @@ export default async function UsuariosPage() {
         </p>
       </div>
 
-      <AddUserForm />
+      <AddUserForm groups={groups} />
 
       <ul className="flex flex-col gap-2">
         {users.map((user) => (
-          <UserRow key={user.id} user={user} isSelf={user.id === session?.user.id} />
+          <UserRow
+            key={user.id}
+            user={user}
+            groupNames={user.groupMemberships.map((m) => m.group.name).sort()}
+            isSelf={user.id === session?.user.id}
+          />
         ))}
       </ul>
     </div>
