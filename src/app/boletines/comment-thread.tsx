@@ -226,9 +226,10 @@ function CommentComposer({
           </>
         ) : null}
         {removePhoto ? <input type="hidden" name="removePhoto" value="on" /> : null}
-        {/* El texto va solo en su renglón y los botones abajo: en la misma
-            fila, en pantallas de celular el 📷 y "Enviar" dejaban el cuadro
-            tan angosto que no se podía escribir. */}
+        {/* El texto va solo en su renglón, con el 📷 como ícono dentro del
+            cuadro, y "Enviar" abajo: en la misma fila, en pantallas de
+            celular los botones dejaban el cuadro tan angosto que no se
+            podía escribir. */}
         <div className="relative">
           <textarea
             ref={textareaRef}
@@ -237,7 +238,10 @@ function CommentComposer({
             maxLength={1000}
             value={text}
             placeholder={replyTo ? "Escribe tu respuesta…" : "Comenta… (@ para etiquetar)"}
-            className="xp-input w-full text-xs"
+            className="xp-input block w-full text-xs"
+            // En línea y no con pr-*: .xp-input no está en una capa de
+            // Tailwind y su padding le gana a las utilidades.
+            style={{ paddingRight: 34 }}
             required={!shownPhoto}
             onChange={(e) => {
               setText(e.target.value);
@@ -262,6 +266,16 @@ function CommentComposer({
             }}
             aria-autocomplete="list"
           />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={photoBusy}
+            className="absolute bottom-2 right-2 rounded p-0.5 text-sm leading-none opacity-60 hover:opacity-100 disabled:opacity-30"
+            aria-label={shownPhoto ? "Cambiar foto" : "Agregar foto"}
+            title={shownPhoto ? "Cambiar foto" : "Agregar foto"}
+          >
+            📷
+          </button>
           {suggestions.length ? (
             <ul
               role="listbox"
@@ -292,27 +306,17 @@ function CommentComposer({
             </button>
           </div>
         ) : null}
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={photoBusy}
-            className="xp-btn-secondary shrink-0 text-xs"
-            aria-label={shownPhoto ? "Cambiar foto" : "Agregar foto"}
-            title={shownPhoto ? "Cambiar foto" : "Agregar foto"}
-          >
-            📷 {shownPhoto ? "Cambiar" : "Foto"}
-          </button>
-          <div className="ml-auto flex items-center gap-3">
-            {onCancel ? (
-              <button type="button" onClick={onCancel} className="text-[11px] font-bold text-ink-faint hover:text-danger">
-                Cancelar
-              </button>
-            ) : null}
-            <button type="submit" disabled={pending || photoBusy} className="xp-btn-secondary shrink-0 text-xs">
-              {pending ? "…" : submitLabel}
+        {/* mr-1: deja lugar a la sombra del botón para que no se salga de
+            la tarjeta. */}
+        <div className="mr-1 flex items-center justify-end gap-3">
+          {onCancel ? (
+            <button type="button" onClick={onCancel} className="text-[11px] font-bold text-ink-faint hover:text-danger">
+              Cancelar
             </button>
-          </div>
+          ) : null}
+          <button type="submit" disabled={pending || photoBusy} className="xp-btn-secondary shrink-0 text-xs">
+            {pending ? "…" : submitLabel}
+          </button>
         </div>
       </form>
       {/* Fuera del <form> a propósito: el archivo en sí no se manda, solo su
