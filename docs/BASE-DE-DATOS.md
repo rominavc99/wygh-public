@@ -69,6 +69,7 @@ erDiagram
     Reaction {
         string id PK
         string responseId FK
+        string groupId FK "grupo donde se reaccionó"
         string userId FK
         string emoji "emoji real o texto ascii"
         string kind "emoji | ascii"
@@ -78,6 +79,7 @@ erDiagram
     Comment {
         string id PK
         string responseId FK
+        string groupId FK "cada grupo tiene su hilo"
         string userId FK
         string parentId FK "nullable; comentario de primer nivel al que responde"
         string text "puede ir vacío si hay foto"
@@ -380,7 +382,11 @@ erDiagram
 
 ### Interacción
 
-- **`Reaction` y `CommentReaction`** tienen `@@unique([…Id, userId, emoji])`:
+- **Por grupo**: `Reaction` y `Comment` llevan `groupId`. Una respuesta
+  mandada a dos grupos tiene reacciones e hilo aparte en cada uno (las
+  reacciones a un comentario van con el comentario).
+- **`Reaction` y `CommentReaction`** son únicas por persona y emoji (por
+  respuesta y grupo, o por comentario):
   una persona puede reaccionar con varios emojis distintos, pero solo una
   vez con cada uno; repetir el mismo lo quita (toggle). `kind` solo sirve
   para pintar distinto los emojis y los emoticones ascii. Están en tablas

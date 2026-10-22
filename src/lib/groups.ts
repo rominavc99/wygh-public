@@ -209,3 +209,19 @@ export function responseLock(
   const locked = hasResponse ? options.some((o) => o.selected && o.sent) : options.every((o) => o.sent);
   return { locked, allowedGroupIds: locked ? [] : options.filter((o) => !o.sent).map((o) => o.id) };
 }
+
+/** Puede ver e interactuar en el grupo: es miembro, o es admin (los admins ven todos). */
+export async function canAccessGroup(user: { id: string; role: string }, groupId: string): Promise<boolean> {
+  if (user.role === "ADMIN") return (await prisma.group.count({ where: { id: groupId } })) > 0;
+  return (await prisma.groupMember.count({ where: { groupId, userId: user.id } })) > 0;
+}
+
+/** Se puede reaccionar o comentar `responseId` dentro de `groupId`: hay acceso y la respuesta se mandó ahí. */
+export async function canInteractInGroup(
+  user: { id: string; role: string },
+  responseId: string,
+  groupId: string
+): Promise<boolean> {
+  const inGroup = await prisma.responseGroup.count({ where: { responseId, groupId } });
+  return inGroup > 0 && (await canAccessGroup(user, groupId));
+}

@@ -331,11 +331,14 @@ function CommentComposer({
 
 export function CommentThread({
   responseId,
+  groupId,
   comments,
   currentUserId,
   mentionable,
 }: {
   responseId: string;
+  /** Cada grupo tiene su propio hilo de la respuesta. */
+  groupId: string;
   comments: CommentSummary[];
   currentUserId: string;
   mentionable: Person[];
@@ -343,7 +346,7 @@ export function CommentThread({
   const [open, setOpen] = useState(comments.length > 0);
   const [editingId, setEditingId] = useState<string | null>(null);
   const composerRef = useRef<ComposerHandle>(null);
-  const addAction = addComment.bind(null, responseId);
+  const addAction = addComment.bind(null, responseId, groupId);
 
   const topLevel = comments.filter((c) => !c.parentId);
   const repliesOf = (id: string) => comments.filter((c) => c.parentId === id);

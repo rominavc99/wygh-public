@@ -93,7 +93,7 @@ export default async function BoletinesPage({
   if (cumple) {
     return (
       <BoletinesShell {...shell} cumple={cumple}>
-        <BirthdayEditionView userId={cumple} date={date} currentUserId={session.user.id} />
+        <BirthdayEditionView userId={cumple} date={date} groupId={group.id} currentUserId={session.user.id} />
       </BoletinesShell>
     );
   }
@@ -106,8 +106,9 @@ export default async function BoletinesPage({
           where: { date, groups: { some: { groupId: group.id } } },
           include: {
             user: true,
-            reactions: { include: { user: true } },
+            reactions: { where: { groupId: group.id }, include: { user: true } },
             comments: {
+              where: { groupId: group.id },
               include: { user: true, reactions: { include: { user: true } }, mentions: { include: { user: true } } },
               orderBy: { createdAt: "asc" },
             },
@@ -146,7 +147,13 @@ export default async function BoletinesPage({
           {responses.length > 0 ? (
             <ul className="flex flex-col gap-4">
               {responses.map((r) => (
-                <ResponseCard key={r.id} response={r} currentUserId={session.user.id} mentionable={mentionable} />
+                <ResponseCard
+                  key={r.id}
+                  response={r}
+                  groupId={group.id}
+                  currentUserId={session.user.id}
+                  mentionable={mentionable}
+                />
               ))}
             </ul>
           ) : (
@@ -313,7 +320,17 @@ function HeroCard({ hero }: { hero: NewsletterHero }) {
  * envío (heroJson/momentsJson), pero cada momento se pinta con la tarjeta
  * interactiva de siempre, así que se puede seguir reaccionando y comentando.
  */
-async function BirthdayEditionView({ userId, date, currentUserId }: { userId: string; date: string; currentUserId: string }) {
+async function BirthdayEditionView({
+  userId,
+  date,
+  groupId,
+  currentUserId,
+}: {
+  userId: string;
+  date: string;
+  groupId: string;
+  currentUserId: string;
+}) {
   const edition = await prisma.birthdayNewsletter.findUnique({
     where: { userId_date: { userId, date } },
     include: { user: true },
@@ -325,19 +342,22 @@ async function BirthdayEditionView({ userId, date, currentUserId }: { userId: st
   const hero = getSentHero(edition);
   const snapshot = parseMomentsSnapshot(edition.momentsJson);
   const responseIds = snapshot?.responseIds ?? (await topMoments(userId, date)).map((m) => m.responseId);
+  // Solo los momentos que se mandaron al grupo que se está viendo, con sus
+  // reacciones y comentarios de ese grupo.
   const found = await prisma.response.findMany({
-    where: { id: { in: responseIds } },
+    where: { id: { in: responseIds }, groups: { some: { groupId } } },
     include: {
       user: true,
-      reactions: { include: { user: true } },
+      reactions: { where: { groupId }, include: { user: true } },
       comments: {
+        where: { groupId },
         include: { user: true, reactions: { include: { user: true } }, mentions: { include: { user: true } } },
         orderBy: { createdAt: "asc" },
       },
     },
   });
   const moments = responseIds.flatMap((id) => found.filter((r) => r.id === id));
-  const mentionable = await mentionableUsers();
+  const mentionable = await mentionableUsers(groupId);
   const celebrant = displayName(edition.user);
 
   return (
@@ -359,7 +379,7 @@ async function BirthdayEditionView({ userId, date, currentUserId }: { userId: st
                 #{i + 1} · 📅 {capitalize(formatLocalDate(r.date))}
               </p>
               <ul>
-                <ResponseCard response={r} currentUserId={currentUserId} mentionable={mentionable} />
+                <ResponseCard response={r} groupId={groupId} currentUserId={currentUserId} mentionable={mentionable} />
               </ul>
             </li>
           ))}

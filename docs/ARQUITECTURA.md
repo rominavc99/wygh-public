@@ -344,6 +344,12 @@ worker manda a todos los activos un boletín extra
   `?grupo=<id>` elige el grupo (si no es tuyo, se usa el primero tuyo).
 - Lista de boletines enviados del grupo (diarios y de cumpleaños), sin
   los que el admin archivó.
+- Reacciones y comentarios son del grupo en que se ven: una respuesta
+  mandada a dos grupos tiene reacciones e hilo aparte en cada uno. Las
+  acciones revisan que tengas acceso al grupo y que la respuesta se haya
+  mandado ahí (`canInteractInGroup()` en `src/lib/groups.ts`); `@` solo
+  sugiere y etiqueta a miembros del grupo, y los avisos solo le llegan a
+  miembros y llevan a ese grupo.
 - Cada boletín muestra la portada congelada y las respuestas de ese día
   mandadas a ese grupo como tarjetas (`response-card.tsx`) donde se puede:
   - **Reaccionar** a la respuesta o a cualquier comentario
