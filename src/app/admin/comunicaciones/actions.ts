@@ -22,6 +22,13 @@ function fieldErrorsFromZod(error: import("zod").ZodError): Record<string, strin
   return fieldErrors;
 }
 
+/** recipientIds guarda ids de personas ("selected") o de grupos ("groups"); vacío para "all". */
+function storedRecipientIds(data: { audience: string; recipientIds: string[]; groupIds: string[] }): string {
+  if (data.audience === "selected") return JSON.stringify(data.recipientIds);
+  if (data.audience === "groups") return JSON.stringify(data.groupIds);
+  return "";
+}
+
 export async function createCommunication(
   _prevState: CommunicationFormState,
   formData: FormData
@@ -35,6 +42,7 @@ export async function createCommunication(
     subject: formData.get("subject"),
     audience: formData.get("audience"),
     recipientIds: formData.getAll("recipientIds").map(String),
+    groupIds: formData.getAll("groupIds").map(String),
     sendMode: formData.get("sendMode"),
     scheduledAt: formData.get("scheduledAt") || undefined,
   });
@@ -55,7 +63,7 @@ export async function createCommunication(
       bodyHtml,
       bodyText,
       audience: data.audience,
-      recipientIds: data.audience === "selected" ? JSON.stringify(data.recipientIds) : "",
+      recipientIds: storedRecipientIds(data),
       scheduledAt,
       createdById: admin.id,
     },
@@ -88,6 +96,7 @@ export async function updateScheduledCommunication(
     subject: formData.get("subject"),
     audience: formData.get("audience"),
     recipientIds: formData.getAll("recipientIds").map(String),
+    groupIds: formData.getAll("groupIds").map(String),
     sendMode: formData.get("sendMode"),
     scheduledAt: formData.get("scheduledAt") || undefined,
   });
@@ -109,7 +118,7 @@ export async function updateScheduledCommunication(
       bodyHtml,
       bodyText,
       audience: data.audience,
-      recipientIds: data.audience === "selected" ? JSON.stringify(data.recipientIds) : "",
+      recipientIds: storedRecipientIds(data),
       scheduledAt,
     },
   });

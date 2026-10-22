@@ -51,7 +51,7 @@ export async function sendWeeklyReportTo(user: Recipient, report: WeeklyReport):
   const isAdmin = user.role === "ADMIN";
   const args = { name: displayName(user), userId: user.id, report, siteUrl: getSiteUrl(), isAdmin };
   const message = {
-    subject: `📊 Resumen semanal${isAdmin ? " (admin)" : ""} — ${settings.newsletterName}`,
+    subject: `📊 Resumen semanal${isAdmin ? " (admin)" : ""} — ${report.newsletterName}`,
     text: weeklyReportEmailText(args),
     html: weeklyReportEmailHtml(args),
   };
@@ -61,31 +61,39 @@ export async function sendWeeklyReportTo(user: Recipient, report: WeeklyReport):
 }
 
 /**
- * Manda el resumen de los 7 días anteriores a `today`: la versión de
- * admins a los admins y la de miembros al resto. Idempotente por semana
- * (WeeklySummarySend).
+ * Manda a cada grupo no suspendido el resumen de sus 7 días anteriores a
+ * `today`, solo a sus miembros: la versión de admins a los admins y la de
+ * miembros al resto. Idempotente por grupo y semana (WeeklySummarySend).
  */
-export async function sendWeeklySummary(today: string): Promise<WeeklySummaryResult> {
+export async function sendWeeklySummary(today: string): Promise<WeeklySummaryResult[]> {
+  const groups = await prisma.group.findMany({ where: { suspended: false } });
+  const results: WeeklySummaryResult[] = [];
+  for (const group of groups) results.push(await sendWeeklySummaryToGroup(group.id, today));
+  return results;
+}
+
+async function sendWeeklySummaryToGroup(groupId: string, today: string): Promise<WeeklySummaryResult> {
   const weekEnd = addDaysLocal(today, -1);
   const weekStart = addDaysLocal(weekEnd, -6);
-  const existing = await prisma.weeklySummarySend.findUnique({ where: { weekStart } });
+  const existing = await prisma.weeklySummarySend.findUnique({ where: { groupId_weekStart: { groupId, weekStart } } });
   if (existing) return { status: "already_sent", recipientCount: existing.recipientCount };
 
-  const report = await buildWeeklyReport(weekEnd);
+  const report = await buildWeeklyReport(weekEnd, groupId);
   if (report.days === 0) {
     await prisma.weeklySummarySend.create({
-      data: { weekStart, weekEnd, recipientCount: 0, status: "skipped_no_days" },
+      data: { groupId, weekStart, weekEnd, recipientCount: 0, status: "skipped_no_days" },
     });
     return { status: "skipped_no_days", recipientCount: 0 };
   }
 
-  const recipients = await prisma.user.findMany({ where: { active: true } });
+  const recipients = await prisma.user.findMany({ where: { active: true, groupMemberships: { some: { groupId } } } });
   const results = await Promise.all(recipients.map((user) => sendWeeklyReportTo(user, report)));
 
   const failures = recipients.filter((_, i) => !results[i]).map((u) => u.email);
   const status = failures.length === 0 ? "sent" : failures.length === recipients.length ? "failed" : "partial";
   await prisma.weeklySummarySend.create({
     data: {
+      groupId,
       weekStart,
       weekEnd,
       recipientCount: recipients.length - failures.length,

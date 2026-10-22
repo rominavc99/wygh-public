@@ -23,7 +23,7 @@ function daysBetween(from: string, to: string): number {
 export default async function CumpleanosPage({
   searchParams,
 }: {
-  searchParams: Promise<{ user?: string; date?: string }>;
+  searchParams: Promise<{ user?: string; date?: string; grupo?: string }>;
 }) {
   const params = await searchParams;
   const today = todayLocalDate();
@@ -33,7 +33,7 @@ export default async function CumpleanosPage({
     prisma.user.findMany({ where: { active: true }, orderBy: { name: "asc" } }),
     prisma.birthdayNewsletter.findMany({
       where: { sentAt: { not: null } },
-      include: { user: true },
+      include: { user: true, group: { select: { name: true } } },
       orderBy: { date: "desc" },
     }),
   ]);
@@ -61,7 +61,8 @@ export default async function CumpleanosPage({
         <h2 className="text-xl font-bold text-ink">🎂 Cumpleaños</h2>
         <p className="text-sm text-ink-soft">
           El día del cumpleaños de alguien sale, a las {settings.birthdaySendTime}, un boletín especial para
-          felicitarle (además del diario de la tarde).
+          felicitarle (además del diario de la tarde): uno en cada uno de sus grupos, solo con sus momentos de ese
+          grupo.
           {settings.birthdayEnabled ? "" : " ⚠️ El envío automático está desactivado."}
         </p>
       </div>
@@ -105,6 +106,7 @@ export default async function CumpleanosPage({
           userId={selectedUser.id}
           userName={displayName(selectedUser)}
           date={selectedDate}
+          groupParam={params.grupo}
         />
       ) : null}
 
@@ -114,8 +116,11 @@ export default async function CumpleanosPage({
           <ul className="flex flex-col gap-1">
             {sentEditions.map((e) => (
               <li key={e.id} className="text-sm text-ink-soft">
-                <Link href={`/admin/cumpleanos?user=${e.userId}&date=${e.date}`} className="font-bold text-ink hover:underline">
-                  {e.date} — {displayName(e.user)}
+                <Link
+                  href={`/admin/cumpleanos?user=${e.userId}&date=${e.date}&grupo=${e.groupId}`}
+                  className="font-bold text-ink hover:underline"
+                >
+                  {e.date} — {displayName(e.user)} · 🫂 {e.group.name}
                 </Link>{" "}
                 · {e.recipientCount} destinatarios · {e.status}
               </li>
@@ -129,14 +134,39 @@ export default async function CumpleanosPage({
   );
 }
 
-async function BirthdayEditionPreview({ userId, userName, date }: { userId: string; userName: string; date: string }) {
+async function BirthdayEditionPreview({
+  userId,
+  userName,
+  date,
+  groupParam,
+}: {
+  userId: string;
+  userName: string;
+  date: string;
+  groupParam?: string;
+}) {
+  // Una edición por cada grupo de la persona.
+  const groups = await prisma.group.findMany({
+    where: { members: { some: { userId } } },
+    orderBy: [{ suspended: "asc" }, { name: "asc" }],
+  });
+  const group = groups.find((g) => g.id === groupParam) ?? groups[0];
+  if (!group) {
+    return (
+      <section className="rounded-xl border border-panel-edge p-4 text-sm text-ink-soft">
+        {userName} no está en ningún grupo, así que no le sale boletín de cumpleaños.
+      </section>
+    );
+  }
+  const groupId = group.id;
+
   // La vista previa resuelve (y deja fija) la foto de portada, así que la
   // fila de la edición se lee después.
-  const [session, preview] = await Promise.all([auth(), getBirthdayNewsletterPreview(userId, date)]);
+  const [session, preview] = await Promise.all([auth(), getBirthdayNewsletterPreview(userId, groupId, date)]);
   const [edition, photos, recipientCount] = await Promise.all([
-    prisma.birthdayNewsletter.findUnique({ where: { userId_date: { userId, date } } }),
-    photosByUser(userId),
-    prisma.user.count({ where: { active: true } }),
+    prisma.birthdayNewsletter.findUnique({ where: { userId_groupId_date: { userId, groupId, date } } }),
+    photosByUser(userId, groupId),
+    prisma.user.count({ where: { active: true, groupMemberships: { some: { groupId } } } }),
   ]);
 
   const previewHtml = personalizeGreeting(preview, session?.user.name ?? "Tu Nombre", preview.greetingTemplate).html;
@@ -145,11 +175,28 @@ async function BirthdayEditionPreview({ userId, userName, date }: { userId: stri
     <section className="flex flex-col gap-4 rounded-xl border border-panel-edge p-4">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h3 className="text-lg font-bold text-ink">💌 Boletín de cumpleaños de {userName}</h3>
+          <h3 className="text-lg font-bold text-ink">
+            💌 Boletín de cumpleaños de {userName} — {group.name}
+          </h3>
           <p className="text-sm capitalize text-ink-soft">{formatLocalDate(date)}</p>
         </div>
-        <form className="flex items-end gap-2">
+        <form className="flex flex-wrap items-end gap-2">
           <input type="hidden" name="user" value={userId} />
+          {groups.length > 1 ? (
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-bold text-ink-soft">Grupo</label>
+              <select name="grupo" defaultValue={groupId} className="xp-select">
+                {groups.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.name}
+                    {g.suspended ? " (en pausa)" : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : (
+            <input type="hidden" name="grupo" value={groupId} />
+          )}
           <div className="flex flex-col gap-1">
             <label className="text-xs font-bold text-ink-soft">Fecha</label>
             <input type="date" name="date" defaultValue={date} className="xp-input" />
@@ -179,11 +226,12 @@ async function BirthdayEditionPreview({ userId, userName, date }: { userId: stri
       </div>
       {preview.error ? <p className="text-xs text-danger">{preview.error}</p> : null}
 
-      <BirthdaySendControls userId={userId} date={date} alreadySent={preview.sent} />
+      <BirthdaySendControls userId={userId} groupId={groupId} date={date} alreadySent={preview.sent} />
 
       {!preview.sent ? (
         <BirthdayPhotoControls
           userId={userId}
+          groupId={groupId}
           date={date}
           photos={photos}
           currentPhotoId={edition?.heroPhotoId ?? null}

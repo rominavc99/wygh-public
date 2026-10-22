@@ -3,7 +3,7 @@ import cron from "node-cron";
 import { prisma } from "@/lib/prisma";
 import { sendDailyNewsletter } from "@/lib/send-newsletter";
 import { sendReminderIfNeeded } from "@/lib/send-reminder";
-import { sendBirthdayNewsletter, birthdayPeopleOn } from "@/lib/send-birthday";
+import { sendBirthdayNewsletter, birthdayPeopleOn, birthdayGroupsOf } from "@/lib/send-birthday";
 import { sendCommunicationNow } from "@/lib/send-communication";
 import { notifyAdminsOfScheduledResult } from "@/lib/notify-admins";
 import { sendWeeklySummary, sendInactivityNudges } from "@/lib/send-engagement";
@@ -64,12 +64,15 @@ async function checkAndSendBirthdays() {
 
   const date = todayLocalDate();
   for (const user of await birthdayPeopleOn(date)) {
-    console.log(`[worker] Hoy cumple años ${user.name}. Enviando boletín de cumpleaños del ${date}...`);
-    const result = await sendBirthdayNewsletter(user.id, date);
-    console.log(
-      `[worker] Cumpleaños de ${user.name}: ${result.status} — ${result.recipientCount} destinatarios, ${result.momentCount} momentos.` +
-        (result.error ? ` Error: ${result.error}` : "")
-    );
+    // Una edición por cada grupo de quien cumple años, solo a ese grupo.
+    for (const group of await birthdayGroupsOf(user.id)) {
+      console.log(`[worker] Hoy cumple años ${user.name}. Enviando su boletín de cumpleaños a "${group.name}"...`);
+      const result = await sendBirthdayNewsletter(user.id, group.id, date);
+      console.log(
+        `[worker] Cumpleaños de ${user.name} en "${group.name}": ${result.status} — ${result.recipientCount} destinatarios, ${result.momentCount} momentos.` +
+          (result.error ? ` Error: ${result.error}` : "")
+      );
+    }
   }
 }
 
@@ -98,8 +101,10 @@ async function checkAndSendWeeklySummary() {
   if (new Date().getDay() !== settings.weeklySummaryDay) return;
   if (nowLocalTime() !== settings.weeklySummaryTime) return;
 
-  const result = await sendWeeklySummary(todayLocalDate());
-  console.log(`[worker] Resumen semanal: ${result.status} — ${result.recipientCount} destinatarios.`);
+  const results = await sendWeeklySummary(todayLocalDate());
+  for (const result of results) {
+    console.log(`[worker] Resumen semanal: ${result.status} — ${result.recipientCount} destinatarios.`);
+  }
 }
 
 async function checkAndSendInactivityNudges() {

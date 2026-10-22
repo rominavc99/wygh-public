@@ -25,14 +25,15 @@ export default async function ComunicacionDetailPage({ params }: { params: Promi
   await requireAdmin();
   const { id } = await params;
 
-  const [communication, activeUsers] = await Promise.all([
+  const [communication, activeUsers, groups] = await Promise.all([
     prisma.communication.findUnique({ where: { id }, include: { createdBy: true } }),
     prisma.user.findMany({ where: { active: true }, orderBy: { name: "asc" } }),
+    prisma.group.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
   ]);
   if (!communication) notFound();
 
-  const recipientIds: string[] =
-    communication.audience === "selected" ? JSON.parse(communication.recipientIds || "[]") : [];
+  const selectedIds: string[] = communication.audience === "all" ? [] : JSON.parse(communication.recipientIds || "[]");
+  const recipientIds = communication.audience === "selected" ? selectedIds : [];
   // Puede incluir gente ya desactivada desde que se creó/programó — se
   // busca aparte para no perder ese nombre en el resumen "Para:".
   const recipientUsers =
@@ -63,7 +64,9 @@ export default async function ComunicacionDetailPage({ params }: { params: Promi
           <strong className="text-ink">Para:</strong>{" "}
           {communication.audience === "all"
             ? "Todos los usuarios activos"
-            : recipientUsers.map((u) => displayName(u)).join(", ") || "—"}
+            : communication.audience === "groups"
+              ? `Miembros de ${groups.filter((g) => selectedIds.includes(g.id)).map((g) => g.name).join(", ") || "—"}`
+              : recipientUsers.map((u) => displayName(u)).join(", ") || "—"}
         </p>
         <p>
           <strong className="text-ink">
@@ -95,11 +98,12 @@ export default async function ComunicacionDetailPage({ params }: { params: Promi
           <CommunicationEditForm
             id={communication.id}
             users={activeUsers.map((u) => ({ id: u.id, label: `${displayName(u)} (${u.email})` }))}
+            groups={groups.map((g) => ({ id: g.id, label: g.name }))}
             initial={{
               subject: communication.subject,
               bodyHtml: communication.bodyHtml,
-              audience: communication.audience as "all" | "selected",
-              recipientIds,
+              audience: communication.audience as "all" | "selected" | "groups",
+              recipientIds: selectedIds,
               scheduledAt: toLocalDatetimeInputValue(new Date(communication.scheduledAt)),
             }}
           />

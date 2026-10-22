@@ -7,7 +7,13 @@ import { RecipientPicker } from "./recipient-picker";
 
 const initialState: CommunicationFormState = { status: "idle" };
 
-export function CommunicationForm({ users }: { users: { id: string; label: string }[] }) {
+export function CommunicationForm({
+  users,
+  groups,
+}: {
+  users: { id: string; label: string }[];
+  groups: { id: string; label: string }[];
+}) {
   const [state, formAction, pending] = useActionState(createCommunication, initialState);
   const [sendMode, setSendMode] = useState<"now" | "later">("now");
   const [formKey, setFormKey] = useState(0);
@@ -52,7 +58,7 @@ export function CommunicationForm({ users }: { users: { id: string; label: strin
 
         <RichTextEditor name="bodyHtml" error={fieldErrors.bodyHtml} />
 
-        <RecipientPicker users={users} error={fieldErrors.recipientIds} />
+        <RecipientPicker users={users} groups={groups} error={fieldErrors.recipientIds} />
 
         <div className="flex flex-col gap-2">
           <label className="text-sm font-bold text-ink">Envío</label>

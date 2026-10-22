@@ -47,7 +47,7 @@ export default async function BoletinesPage({
       orderBy: { date: "desc" },
     }),
     prisma.birthdayNewsletter.findMany({
-      where: { sentAt: { not: null } },
+      where: { sentAt: { not: null }, groupId: group.id },
       select: { userId: true, date: true, user: { select: { name: true, username: true } } },
       orderBy: { date: "desc" },
     }),
@@ -332,7 +332,7 @@ async function BirthdayEditionView({
   currentUserId: string;
 }) {
   const edition = await prisma.birthdayNewsletter.findUnique({
-    where: { userId_date: { userId, date } },
+    where: { userId_groupId_date: { userId, groupId, date } },
     include: { user: true },
   });
   if (!edition?.sentAt) {
@@ -341,7 +341,7 @@ async function BirthdayEditionView({
 
   const hero = getSentHero(edition);
   const snapshot = parseMomentsSnapshot(edition.momentsJson);
-  const responseIds = snapshot?.responseIds ?? (await topMoments(userId, date)).map((m) => m.responseId);
+  const responseIds = snapshot?.responseIds ?? (await topMoments(userId, groupId, date)).map((m) => m.responseId);
   // Solo los momentos que se mandaron al grupo que se está viendo, con sus
   // reacciones y comentarios de ese grupo.
   const found = await prisma.response.findMany({

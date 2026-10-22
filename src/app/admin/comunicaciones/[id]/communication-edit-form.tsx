@@ -11,14 +11,16 @@ const initialState: CommunicationFormState = { status: "idle" };
 export function CommunicationEditForm({
   id,
   users,
+  groups,
   initial,
 }: {
   id: string;
   users: { id: string; label: string }[];
+  groups: { id: string; label: string }[];
   initial: {
     subject: string;
     bodyHtml: string;
-    audience: "all" | "selected";
+    audience: "all" | "selected" | "groups";
     recipientIds: string[];
     scheduledAt: string;
   };
@@ -56,6 +58,7 @@ export function CommunicationEditForm({
 
       <RecipientPicker
         users={users}
+        groups={groups}
         error={fieldErrors.recipientIds}
         initialAudience={initial.audience}
         initialSelected={initial.recipientIds}

@@ -112,21 +112,29 @@ function leaders(users: UserStats[], value: (u: UserStats) => number, min = 1): 
   return { names: joinNames(names), top };
 }
 
-/** Resumen de los 7 días que terminan en `weekEnd` (inclusive). */
-export async function buildWeeklyReport(weekEnd: string): Promise<WeeklyReport> {
+/**
+ * Resumen de los 7 días que terminan en `weekEnd` (inclusive) de un grupo:
+ * sus miembros, sus días y lo que pasó ahí.
+ */
+export async function buildWeeklyReport(weekEnd: string, groupId: string): Promise<WeeklyReport> {
   const weekStart = addDaysLocal(weekEnd, -6);
-  const [stats, previous, settings, nudges, allUsers, sends] = await Promise.all([
-    getParticipationStats({ from: weekStart, to: weekEnd }),
-    getParticipationStats({ from: addDaysLocal(weekStart, -7), to: addDaysLocal(weekStart, -1) }),
+  const members = { groupMemberships: { some: { groupId } } };
+  const [stats, previous, settings, group, nudges, allUsers, sends] = await Promise.all([
+    getParticipationStats({ from: weekStart, to: weekEnd, groupId }),
+    getParticipationStats({ from: addDaysLocal(weekStart, -7), to: addDaysLocal(weekStart, -1), groupId }),
     prisma.settings.upsert({ where: { id: 1 }, create: { id: 1 }, update: {} }),
+    prisma.group.findUniqueOrThrow({ where: { id: groupId } }),
     prisma.inactivityNudge.findMany({
-      where: { date: { gte: weekStart, lte: weekEnd } },
+      where: { date: { gte: weekStart, lte: weekEnd }, user: members },
       include: { user: true },
       orderBy: { date: "asc" },
     }),
-    prisma.user.findMany({ select: { name: true, username: true, active: true, createdAt: true, birthday: true } }),
+    prisma.user.findMany({
+      where: members,
+      select: { name: true, username: true, active: true, createdAt: true, birthday: true },
+    }),
     prisma.newsletterSend.findMany({
-      where: { date: { gte: weekStart, lte: weekEnd } },
+      where: { date: { gte: weekStart, lte: weekEnd }, groupId },
       orderBy: { date: "asc" },
       include: { group: { select: { name: true } } },
     }),
@@ -200,7 +208,7 @@ export async function buildWeeklyReport(weekEnd: string): Promise<WeeklyReport> 
   if (missingDays) sendIssues.push(`${plural(missingDays, "día", "días")} de la semana sin boletín.`);
 
   return {
-    newsletterName: settings.newsletterName,
+    newsletterName: group.name,
     periodLabel: `del ${longDate(weekStart)} al ${longDate(weekEnd)}`,
     weekStart,
     weekEnd,

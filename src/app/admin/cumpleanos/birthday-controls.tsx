@@ -8,10 +8,12 @@ type Photo = { id: string; filename: string; description: string | null };
 
 export function BirthdaySendControls({
   userId,
+  groupId,
   date,
   alreadySent,
 }: {
   userId: string;
+  groupId: string;
   date: string;
   alreadySent: boolean;
 }) {
@@ -20,7 +22,7 @@ export function BirthdaySendControls({
 
   function trigger(force: boolean) {
     startTransition(async () => {
-      setResult(await sendBirthdayNow(userId, date, force));
+      setResult(await sendBirthdayNow(userId, groupId, date, force));
     });
   }
 
@@ -61,12 +63,14 @@ function resultMessage(result: BirthdaySendResult): string {
 
 export function BirthdayPhotoControls({
   userId,
+  groupId,
   date,
   photos,
   currentPhotoId,
   photoManual,
 }: {
   userId: string;
+  groupId: string;
   date: string;
   photos: Photo[];
   currentPhotoId: string | null;
@@ -79,7 +83,7 @@ export function BirthdayPhotoControls({
       <div className="rounded-xl border border-panel-edge bg-panel-2 p-4">
         <h3 className="text-base font-bold text-ink">🖼️ Foto de portada</h3>
         <p className="text-xs text-ink-faint">
-          Esta persona todavía no ha subido fotos, así que la portada sale sin imagen.
+          Esta persona todavía no ha subido fotos que pueda ver este grupo, así que la portada sale sin imagen.
         </p>
       </div>
     );
@@ -89,12 +93,13 @@ export function BirthdayPhotoControls({
     <div className="flex flex-col gap-1.5 rounded-xl border border-panel-edge bg-panel-2 p-4">
       <h3 className="text-base font-bold text-ink">🖼️ Foto de portada {photoManual ? "(elegida a mano)" : "(automática)"}</h3>
       <p className="text-xs text-ink-faint">
-        Sale de las {photos.length} foto{photos.length === 1 ? "" : "s"} que ha subido esta persona. Solo tiene
-        efecto mientras este boletín no se haya enviado.
+        Sale de las {photos.length} foto{photos.length === 1 ? "" : "s"} que ha subido esta persona y puede ver
+        este grupo. Solo tiene efecto mientras este boletín no se haya enviado.
       </p>
       <div className="flex flex-wrap items-center gap-2">
         <form action={setManualBirthdayPhotoAction} className="flex items-center gap-2">
           <input type="hidden" name="userId" value={userId} />
+          <input type="hidden" name="groupId" value={groupId} />
           <input type="hidden" name="date" value={date} />
           <select name="heroPhotoId" defaultValue={currentPhotoId ?? ""} className="xp-input max-w-72">
             <option value="">Automática</option>
@@ -111,7 +116,7 @@ export function BirthdayPhotoControls({
         <button
           type="button"
           disabled={pending || photos.length < 2}
-          onClick={() => startTransition(() => rerollBirthdayPhotoAction(userId, date))}
+          onClick={() => startTransition(() => rerollBirthdayPhotoAction(userId, groupId, date))}
           className="xp-btn-secondary"
         >
           {pending ? "Re-rolando…" : "🔀 Re-rolar foto"}
