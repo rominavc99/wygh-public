@@ -11,34 +11,39 @@ export type BirthdaySendResult = {
 };
 
 /**
- * Envía el boletín de cumpleaños de `userId` para `date` a todos los
- * usuarios activos (incluida la persona que cumple años). Idempotente por
- * (persona, fecha) salvo `force` (botón "Reenviar" de /admin/cumpleanos).
+ * Envía la edición del grupo del boletín de cumpleaños de `userId` para
+ * `date` a los miembros activos del grupo (incluida la persona que cumple
+ * años). Idempotente por (persona, grupo, fecha) salvo `force` (botón
+ * "Reenviar" de /admin/cumpleanos).
  */
 export async function sendBirthdayNewsletter(
   userId: string,
+  groupId: string,
   date: string,
   options?: { force?: boolean }
 ): Promise<BirthdaySendResult> {
-  const existing = await prisma.birthdayNewsletter.findUnique({ where: { userId_date: { userId, date } } });
+  const where = { userId_groupId_date: { userId, groupId, date } };
+  const existing = await prisma.birthdayNewsletter.findUnique({ where });
   if (existing?.sentAt && !options?.force) {
     return { status: "already_sent", recipientCount: existing.recipientCount, momentCount: existing.momentCount };
   }
 
-  const [content, settings] = await Promise.all([
-    buildBirthdayNewsletter(userId, date),
+  const [content, settings, group] = await Promise.all([
+    buildBirthdayNewsletter(userId, groupId, date),
     prisma.settings.upsert({ where: { id: 1 }, create: { id: 1 }, update: {} }),
+    prisma.group.findUniqueOrThrow({ where: { id: groupId } }),
   ]);
 
   const { recipients, failures } = await deliverToActiveUsers({
     content,
-    subject: `${settings.newsletterName} — 🎂 Feliz cumpleaños, ${content.celebrantName}`,
+    subject: `${group.name} — 🎂 Feliz cumpleaños, ${content.celebrantName}`,
     greetingTemplate: settings.birthdayGreetingTemplate,
     settings,
+    groupId,
     notification: {
       kind: "birthday",
       title: `🎂 Boletín de cumpleaños de ${content.celebrantName}`,
-      url: `/boletines?date=${date}&cumple=${userId}`,
+      url: `/boletines?date=${date}&cumple=${userId}&grupo=${groupId}`,
       text: `Hoy celebramos a ${content.celebrantName} 🎉 Toca para ver su boletín.`,
     },
   });
@@ -63,12 +68,20 @@ export async function sendBirthdayNewsletter(
     } satisfies BirthdayMomentsSnapshot),
   };
   await prisma.birthdayNewsletter.upsert({
-    where: { userId_date: { userId, date } },
-    create: { userId, date, ...data },
+    where,
+    create: { userId, groupId, date, ...data },
     update: data,
   });
 
   return { status, recipientCount: recipients.length, momentCount: content.moments.length, error: error ?? undefined };
+}
+
+/** Grupos no suspendidos de `userId`: a cada uno le sale su edición del boletín de cumpleaños. */
+export async function birthdayGroupsOf(userId: string) {
+  return prisma.group.findMany({
+    where: { suspended: false, members: { some: { userId } } },
+    orderBy: { name: "asc" },
+  });
 }
 
 /** Usuarios activos que cumplen años en `date` (el 29 de febrero cuenta el 28 en años no bisiestos). */

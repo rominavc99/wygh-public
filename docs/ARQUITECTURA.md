@@ -231,9 +231,9 @@ Proceso PM2 aparte que cada minuto revisa:
 |---|---|---|---|
 | Boletín diario de cada grupo | `Group.sendTime` de cada grupo no suspendido (si `Settings.autoSend`) | `sendDailyNewsletter(groupId, date)` | `NewsletterSend(groupId, date)` |
 | Recordatorio a quien no ha respondido | 1 h antes del `sendTime` de cada grupo (si su `reminderEnabled`); solo a sus miembros sin respuesta ese día | `sendReminderIfNeeded(groupId, date)` | `ReminderSend(groupId, date)` |
-| Boletín de cumpleaños | `Settings.birthdaySendTime` (si `birthdayEnabled`) | `sendBirthdayNewsletter()` | `BirthdayNewsletter(userId, date)` |
+| Boletín de cumpleaños (una edición por grupo de quien cumple) | `Settings.birthdaySendTime` (si `birthdayEnabled`) | `sendBirthdayNewsletter(userId, groupId, date)` | `BirthdayNewsletter(userId, groupId, date)` |
 | Comunicaciones programadas | cuando llega su `scheduledAt` | `sendCommunicationNow()` + aviso a admins | `Communication.status` |
-| Resumen semanal de participación | `weeklySummaryDay` a las `weeklySummaryTime` (si `weeklySummaryEnabled`) | `sendWeeklySummary()` | `WeeklySummarySend.weekStart` |
+| Resumen semanal de participación (uno por grupo, a sus miembros) | `weeklySummaryDay` a las `weeklySummaryTime` (si `weeklySummaryEnabled`) | `sendWeeklySummary()` | `WeeklySummarySend(groupId, weekStart)` |
 | Correo a quien lleva N días sin responder | `inactivityNudgeTime` (si `inactivityNudgeEnabled`) | `sendInactivityNudges()` | `InactivityNudge(userId, date)` |
 | Correos especiales (racha, "hace un año", aniversario, resumen anual el 1 de enero) | `extrasEmailTime` (cada uno con su interruptor) | `sendDailyExtras()` | `EngagementEmail(userId, kind, key)` |
 
@@ -243,16 +243,20 @@ Todo se manda solo a usuarios activos.
 
 `getParticipationStats()` (`src/lib/participation-stats.ts`) calcula
 todo a partir de los **días cerrados**: los días con fila en
-`NewsletterSend` (de cualquier grupo), que son en los que se esperaba
-respuesta. El día de hoy
+`NewsletterSend`, que son en los que se esperaba respuesta. El día de hoy
 no cuenta hasta que sale el boletín, un día sin boletín no se le "debe" a
-nadie, y a cada persona solo le cuentan los días desde su alta
-(`User.createdAt`). Los "días seguidos sin responder" son los días
-cerrados desde su última respuesta.
+nadie, y a cada persona solo le cuentan los días en que salió el boletín
+de alguno de sus grupos, desde que entró a ese grupo
+(`GroupMember.joinedAt`, nunca antes de `User.createdAt`). Los "días
+seguidos sin responder" son sus días cerrados desde su última respuesta.
+Con `groupId` todo se limita a un grupo (sus miembros, días, respuestas,
+reacciones y comentarios): así se filtra `/admin/estadisticas` y se arma
+el resumen semanal de cada grupo.
 
-- **Resumen semanal**: los 7 días anteriores al día de envío; mismo
-  contenido para todos (participación del grupo, destacados y días
-  respondidos por persona) más una línea personal.
+- **Resumen semanal**: uno por grupo, a sus miembros, con los 7 días
+  anteriores al día de envío de ese grupo; mismo contenido para todo el
+  grupo (participación, destacados y días respondidos por persona) más una
+  línea personal. Quien está en varios grupos recibe uno de cada uno.
 - **Resumen semanal, dos versiones**: los miembros reciben participación,
   destacados, top 3 de quién responde/reacciona/comenta más y menos, y las
   listas de quien lleva `inactivityNudgeDays` días o más sin responder y
@@ -321,8 +325,11 @@ oscuro por cliente sin que se pida explícitamente.
 Cada quien registra su fecha en `/perfil`, o en el aviso que aparece en
 `/` mientras no la tenga y no haya elegido "Prefiero no decirlo". A
 `Settings.birthdaySendTime` (09:00 por defecto) de su cumpleaños, el
-worker manda a todos los activos un boletín extra
-(`src/lib/birthday-newsletter.ts` + `src/lib/send-birthday.ts`):
+worker manda un boletín extra a cada uno de sus grupos (no suspendidos),
+solo a los miembros de ese grupo y con el nombre y lema del grupo
+(`src/lib/birthday-newsletter.ts` + `src/lib/send-birthday.ts`). Cada
+edición usa solo fotos y momentos (con sus reacciones y comentarios) de
+ese grupo:
 
 - Mismo marco y remitente que el diario.
 - Portada con una foto subida por quien cumple años (fija para ese día,
@@ -420,8 +427,9 @@ Frases, Cumpleaños, Envíos, Comunicaciones, Ajustes.
 - **Envíos**: historial de `NewsletterSend` de todos los grupos;
   archivar oculta un boletín en `/boletines` sin borrarlo.
 - **Comunicaciones**: correos sueltos con editor de texto enriquecido (el
-  HTML se sanea en `rich-text.ts`), a todos o a personas elegidas, de
-  inmediato o programados. De los programados, los admins reciben un
+  HTML se sanea en `rich-text.ts`), a todos, a personas elegidas o a los
+  miembros de ciertos grupos (`audience = "groups"`), de inmediato o
+  programados. De los programados, los admins reciben un
   correo con el resultado.
 - **Ajustes**: nombre y lema del sitio, envío automático (todos los
   grupos), bloqueo tras el envío, remitente, resumen semanal, correo de inactividad y correos especiales (con vista previa
@@ -436,8 +444,9 @@ Frases, Cumpleaños, Envíos, Comunicaciones, Ajustes.
 
 ## Autoservicio del usuario
 
-- **`/perfil`**: nombre y correo de solo lectura, apodo (`username`) y
-  fecha de cumpleaños.
+- **`/perfil`**: nombre y correo de solo lectura, apodo (`username`),
+  fecha de cumpleaños y "Mis grupos", donde cada quien puede salirse de un
+  grupo (volver requiere el enlace de invitación o a un admin).
 - **`/mis-respuestas`**: historial propio, día por día.
 - **`/notificaciones`**: copia de cada correo que se le mandó a la persona
   (boletín, cumpleaños, recordatorio, reacciones/comentarios,

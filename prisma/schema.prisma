@@ -105,6 +105,8 @@ model Group {
   dailyPicks  DailyPick[]
   reactions   Reaction[]
   comments    Comment[]
+  birthdayNewsletters BirthdayNewsletter[]
+  weeklySummaries     WeeklySummarySend[]
 }
 
 model GroupMember {
@@ -376,15 +378,20 @@ model EngagementEmail {
   @@unique([userId, kind, key])
 }
 
-/// Un resumen semanal enviado; weekStart es el primer día ("YYYY-MM-DD")
-/// de los 7 que cubre. Hace idempotente el envío, como NewsletterSend.
+/// Un resumen semanal enviado a un grupo; weekStart es el primer día
+/// ("YYYY-MM-DD") de los 7 que cubre. Hace idempotente el envío, como
+/// NewsletterSend (uno por grupo y semana).
 model WeeklySummarySend {
-  weekStart      String   @id
+  groupId        String
+  group          Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  weekStart      String
   weekEnd        String
   sentAt         DateTime @default(now())
   recipientCount Int
   status         String // "sent" | "partial" | "failed"
   error          String?
+
+  @@id([groupId, weekStart])
 }
 
 /// Correo de "llevas N días sin responder" mandado a alguien un día dado.
@@ -483,7 +490,7 @@ model NewsletterSend {
   @@index([date])
 }
 
-// Boletín de cumpleaños: uno por persona y fecha, aparte del boletín diario
+// Boletín de cumpleaños: uno por persona, grupo y fecha, aparte del diario
 // (aparte de los NewsletterSend de ese día, que son por grupo). La
 // fila nace al resolver la foto de portada (vista previa del admin o envío)
 // y hace de DailyPick de esta edición: la foto sale de las que subió quien
@@ -491,10 +498,14 @@ model NewsletterSend {
 // Al enviarse, sentAt y el snapshot (contentHtml/contentText/heroJson)
 // quedan congelados, igual que en NewsletterSend.
 model BirthdayNewsletter {
-  id     String @id @default(cuid())
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  date   String // "YYYY-MM-DD", el día del cumpleaños en que sale
+  id      String @id @default(cuid())
+  userId  String
+  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Sale una edición por cada grupo de quien cumple años, solo a ese grupo
+  // y con sus momentos de ese grupo.
+  groupId String
+  group   Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  date    String // "YYYY-MM-DD", el día del cumpleaños en que sale
 
   heroPhotoId     String?
   heroPhoto       HeroPhoto? @relation(fields: [heroPhotoId], references: [id], onDelete: SetNull)
@@ -518,7 +529,7 @@ model BirthdayNewsletter {
 
   createdAt DateTime @default(now())
 
-  @@unique([userId, date])
+  @@unique([userId, groupId, date])
 }
 
 // Correo suelto que el admin manda desde /admin/comunicaciones — distinto
@@ -533,7 +544,8 @@ model Communication {
   bodyText String
 
   // "all" = todos los usuarios activos; "selected" = solo los de
-  // recipientIds (ids de User en JSON, ej. '["id1","id2"]').
+  // recipientIds (ids de User en JSON, ej. '["id1","id2"]'); "groups" = los
+  // miembros activos de los grupos cuyos ids van en recipientIds.
   audience     String
   recipientIds String @default("")
 

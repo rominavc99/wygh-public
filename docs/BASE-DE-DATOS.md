@@ -238,6 +238,7 @@ erDiagram
     }
 
     WeeklySummarySend {
+        string groupId PK,FK
         string weekStart PK "primer día de los 7 que cubre"
         string weekEnd
         datetime sentAt
@@ -265,7 +266,8 @@ erDiagram
     BirthdayNewsletter {
         string id PK
         string userId FK "quien cumple años"
-        string date "YYYY-MM-DD; único con userId"
+        string groupId FK "una edición por grupo"
+        string date "YYYY-MM-DD; único con userId y groupId"
         string heroPhotoId FK "nullable"
         boolean heroPhotoManual
         string status "nullable hasta enviarse"
@@ -416,7 +418,8 @@ erDiagram
 ### Envíos
 
 - **Idempotencia**: `NewsletterSend` y `ReminderSend` son únicos por
-  `(groupId, date)`, y `BirthdayNewsletter` por `(userId, date)`. El worker revisa
+  `(groupId, date)`, `BirthdayNewsletter` por `(userId, groupId, date)` y
+  `WeeklySummarySend` por `(groupId, weekStart)`. El worker revisa
   si ya existe el envío antes de mandar, así que aunque el cron corra de
   más o el proceso se reinicie, nunca sale dos veces lo mismo (salvo
   reenvío forzado desde el panel).

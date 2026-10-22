@@ -35,15 +35,18 @@ function tipEdge(index: number, total: number): string {
 export default async function EstadisticasPage({
   searchParams,
 }: {
-  searchParams: Promise<{ dias?: string }>;
+  searchParams: Promise<{ dias?: string; grupo?: string }>;
 }) {
   const params = await searchParams;
   const range = RANGES.find((r) => r.key === params.dias) ?? RANGES[1];
   const today = todayLocalDate();
+  const groups = await prisma.group.findMany({ orderBy: [{ suspended: "asc" }, { name: "asc" }], select: { id: true, name: true } });
+  const groupId = groups.find((g) => g.id === params.grupo)?.id;
   const [stats, settings] = await Promise.all([
-    getParticipationStats({ from: range.days ? addDaysLocal(today, -range.days) : null, to: today }),
+    getParticipationStats({ from: range.days ? addDaysLocal(today, -range.days) : null, to: today, groupId }),
     prisma.settings.upsert({ where: { id: 1 }, create: { id: 1 }, update: {} }),
   ]);
+  const href = (dias: string, grupo?: string) => `/admin/estadisticas?dias=${dias}${grupo ? `&grupo=${grupo}` : ""}`;
 
   const { totals } = stats;
   const groupRate = totals.eligible ? totals.responses / totals.eligible : null;
@@ -64,16 +67,31 @@ export default async function EstadisticasPage({
       <div>
         <h2 className="text-xl font-bold text-ink">📊 Estadísticas</h2>
         <p className="text-sm text-ink-soft">
-          Participación de las personas activas. Solo cuentan los días en que salió el boletín, y a
-          cada quien desde el día en que lo dieron de alta.
+          Participación de las personas activas. Solo cuentan los días en que salió el boletín de alguno de sus
+          grupos, y a cada quien desde que entró a ese grupo.
         </p>
       </div>
+
+      {groups.length > 1 ? (
+        <nav className="flex flex-wrap gap-2" aria-label="Grupo">
+          {[{ id: undefined, name: "Todos los grupos" }, ...groups].map((g) => (
+            <Link
+              key={g.id ?? "todos"}
+              href={href(range.key, g.id)}
+              className={`chip ${g.id === groupId ? "chip-pink" : "chip-neutral"}`}
+              aria-current={g.id === groupId ? "page" : undefined}
+            >
+              🫂 {g.name}
+            </Link>
+          ))}
+        </nav>
+      ) : null}
 
       <nav className="flex flex-wrap gap-2" aria-label="Periodo">
         {RANGES.map((r) => (
           <Link
             key={r.key}
-            href={`/admin/estadisticas?dias=${r.key}`}
+            href={href(r.key, groupId)}
             className={`chip ${r.key === range.key ? "chip-pink" : "chip-neutral"}`}
             aria-current={r.key === range.key ? "page" : undefined}
           >
