@@ -17,6 +17,7 @@ import path from "node:path";
 import { prisma } from "../src/lib/prisma";
 import { Role } from "../src/generated/prisma/enums";
 import { previousLocalDate, todayLocalDate } from "../src/lib/date";
+import { addNewUserToDefaultGroups, ensureResponseGroups } from "../src/lib/groups";
 
 if (process.env.NODE_ENV === "production") {
   throw new Error(
@@ -81,6 +82,7 @@ async function main() {
       prisma.user.create({ data: { name: u.name, email: u.email, role: Role.MEMBER, active: true } })
     )
   );
+  for (const user of users) await addNewUserToDefaultGroups(user.id);
 
   const dates: string[] = [todayLocalDate()];
   for (let i = 0; i < 4; i++) dates.push(previousLocalDate(dates[dates.length - 1]));
@@ -143,6 +145,7 @@ async function main() {
         },
         update: {},
       });
+      await ensureResponseGroups(response.id, user.id);
 
       // Reacciones de 1 a 3 compañeros distintos.
       const reactors = users.filter((u) => u.id !== user.id);
