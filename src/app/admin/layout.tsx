@@ -7,6 +7,7 @@ const TABS = [
   { href: "/admin/estadisticas", label: "Estadísticas", icon: "📊" },
   { href: "/admin/respuestas", label: "Respuestas", icon: "🗂️" },
   { href: "/admin/usuarios", label: "Usuarios", icon: "👥" },
+  { href: "/admin/grupos", label: "Grupos", icon: "🫂" },
   { href: "/admin/boletin", label: "Boletín", icon: "💌" },
   { href: "/admin/fotos", label: "Fotos", icon: "🖼️" },
   { href: "/admin/frases", label: "Frases", icon: "💭" },
