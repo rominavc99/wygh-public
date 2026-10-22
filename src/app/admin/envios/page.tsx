@@ -16,7 +16,10 @@ const statusChip: Record<string, string> = {
 };
 
 export default async function EnviosPage() {
-  const sends = await prisma.newsletterSend.findMany({ orderBy: { date: "desc" } });
+  const sends = await prisma.newsletterSend.findMany({
+    orderBy: [{ date: "desc" }, { sentAt: "desc" }],
+    include: { group: { select: { name: true } } },
+  });
 
   return (
     <div className="flex flex-col gap-6">
@@ -36,7 +39,8 @@ export default async function EnviosPage() {
           >
             <div>
               <p className="font-bold text-ink">
-                {send.date} {send.archived ? <span className="chip chip-neutral ml-1">📦 Archivado</span> : null}
+                {send.date} <span className="chip chip-blue ml-1">🫂 {send.group.name}</span>
+                {send.archived ? <span className="chip chip-neutral ml-1">📦 Archivado</span> : null}
               </p>
               <p className="text-sm text-ink-soft">
                 {send.recipientCount} destinatario{send.recipientCount === 1 ? "" : "s"} ·{" "}
@@ -50,7 +54,7 @@ export default async function EnviosPage() {
                 {statusLabel[send.status] ?? send.status}
               </span>
               <form action={toggleArchived}>
-                <input type="hidden" name="date" value={send.date} />
+                <input type="hidden" name="id" value={send.id} />
                 <input type="hidden" name="nextArchived" value={(!send.archived).toString()} />
                 <button type="submit" className="xp-btn-secondary">
                   {send.archived ? "Desarchivar" : "Archivar"}

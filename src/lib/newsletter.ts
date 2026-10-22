@@ -12,7 +12,7 @@ import {
 import { formatLocalDate } from "@/lib/date";
 import { avatarGradient } from "@/lib/avatar";
 import { displayName } from "@/lib/display-name";
-import { syncHeroPhotos, resolveHeroPhotoForDate, type HeroPhotoRecord } from "@/lib/hero-photos";
+import { syncHeroPhotos, heroPhotosForGroup, resolveHeroPhotoForDate, type HeroPhotoRecord } from "@/lib/hero-photos";
 import { getSiteUrl } from "@/lib/site-url";
 import { resolveDailyPhrase } from "@/lib/phrases";
 
@@ -53,32 +53,36 @@ export type NewsletterContent = {
   hero: NewsletterHero;
 };
 
+/** Los ajustes de un grupo (ver el modelo Group) que usa su boletín. */
+export type GroupNewsletterSettings = {
+  id: string;
+  name: string;
+  tagline: string;
+  greetingTemplate: string;
+  heroEnabled: boolean;
+  heroTitle: string;
+  heroParagraph: string;
+  heroImageUrl: string;
+  heroLinkUrl: string;
+  heroLinkText: string;
+  selectedPhraseId: string;
+};
+
 /**
- * Resuelve la portada (hero) para `date`: título/párrafo de Ajustes, la
- * foto que le toca a ese día (ver resolveHeroPhotoForDate) y la frase del
- * día (ver resolveDailyPhrase). La usan tanto buildNewsletter() (para el
- * HTML del correo) como la vista nativa/interactiva de /boletines.
+ * Resuelve la portada (hero) del grupo para `date`: título/párrafo del
+ * grupo, la foto que le toca a ese día (ver resolveHeroPhotoForDate) y la
+ * frase del día (ver resolveDailyPhrase). La usan tanto buildNewsletter()
+ * (para el HTML del correo) como la vista nativa/interactiva de /boletines.
  */
-export async function resolveNewsletterHero(
-  date: string,
-  settings: {
-    heroEnabled: boolean;
-    heroTitle: string;
-    heroParagraph: string;
-    heroImageUrl: string;
-    heroLinkUrl: string;
-    heroLinkText: string;
-    selectedPhraseId: string;
-  }
-): Promise<NewsletterHero> {
-  const photos = await syncHeroPhotos();
-  let heroImageUrl = settings.heroImageUrl.trim();
+export async function resolveNewsletterHero(date: string, group: GroupNewsletterSettings): Promise<NewsletterHero> {
+  const photos = await heroPhotosForGroup(group.id, await syncHeroPhotos());
+  let heroImageUrl = group.heroImageUrl.trim();
   let matchedPhoto: HeroPhotoRecord | null = null;
   if (!heroImageUrl) {
-    matchedPhoto = await resolveHeroPhotoForDate(date, photos);
+    matchedPhoto = await resolveHeroPhotoForDate(group.id, date, photos);
     if (matchedPhoto) heroImageUrl = `${getSiteUrl()}/${matchedPhoto.filename}`;
   } else {
-    // La URL puesta a mano en Ajustes igual puede apuntar a una foto del
+    // La URL puesta a mano en el grupo igual puede apuntar a una foto del
     // catálogo — si es así, se usa su metadata (fecha/descripción) como
     // pie de foto.
     matchedPhoto = photos.find((p) => heroImageUrl.endsWith(p.filename)) ?? null;
@@ -87,29 +91,30 @@ export async function resolveNewsletterHero(
     ? { date: matchedPhoto.date, description: matchedPhoto.description, authorName: matchedPhoto.authorName }
     : null;
 
-  const dailyPhrase = await resolveDailyPhrase(date, settings.selectedPhraseId);
+  const dailyPhrase = await resolveDailyPhrase(group.id, date, group.selectedPhraseId);
 
   return {
-    enabled: settings.heroEnabled,
-    title: settings.heroTitle,
-    paragraph: settings.heroParagraph,
+    enabled: group.heroEnabled,
+    title: group.heroTitle,
+    paragraph: group.heroParagraph,
     imageUrl: heroImageUrl,
     imageCaption,
-    linkUrl: settings.heroLinkUrl,
-    linkText: settings.heroLinkText,
+    linkUrl: group.heroLinkUrl,
+    linkText: group.heroLinkText,
     dailyPhrase: dailyPhrase?.text ?? null,
     dailyPhraseAuthor: dailyPhrase?.authorName ?? null,
   };
 }
 
-export async function buildNewsletter(date: string): Promise<NewsletterContent> {
-  const [responses, settings] = await Promise.all([
+/** El boletín de `date` de un grupo: solo las respuestas que se mandaron a ese grupo. */
+export async function buildNewsletter(groupId: string, date: string): Promise<NewsletterContent> {
+  const [responses, group] = await Promise.all([
     prisma.response.findMany({
-      where: { date },
+      where: { date, groups: { some: { groupId } } },
       include: { user: true },
       orderBy: { user: { name: "asc" } },
     }),
-    prisma.settings.upsert({ where: { id: 1 }, create: { id: 1 }, update: {} }),
+    prisma.group.findUniqueOrThrow({ where: { id: groupId } }),
   ]);
 
   const items: NewsletterResponse[] = responses.map((r) => ({
@@ -129,19 +134,19 @@ export async function buildNewsletter(date: string): Promise<NewsletterContent> 
     photoDescription: r.photoDescription,
   }));
 
-  const hero = await resolveNewsletterHero(date, settings);
+  const hero = await resolveNewsletterHero(date, group);
 
   return {
     html: renderHtml({
       date,
       items,
-      newsletterName: settings.newsletterName,
-      tagline: settings.tagline,
+      newsletterName: group.name,
+      tagline: group.tagline,
       hero,
     }),
-    text: renderText({ date, items, newsletterName: settings.newsletterName, hero }),
+    text: renderText({ date, items, newsletterName: group.name, hero }),
     responses: items,
-    greetingTemplate: settings.greetingTemplate,
+    greetingTemplate: group.greetingTemplate,
     hero,
   };
 }
@@ -434,7 +439,7 @@ export function responseDetailsText(item: Omit<NewsletterResponse, "userName">):
 }
 
 export type NewsletterForDate = {
-  /** true si ya existe un NewsletterSend para esa fecha (con o sin snapshot). */
+  /** true si ya existe un NewsletterSend del grupo para esa fecha (con o sin snapshot). */
   sent: boolean;
   /** true si el contenido viene del snapshot guardado (congelado), no reconstruido en vivo. */
   frozen: boolean;
@@ -447,14 +452,15 @@ export type NewsletterForDate = {
 };
 
 /**
- * Contenido del boletín de una fecha, preferiendo el snapshot guardado en
- * el envío real (congelado tal cual se mandó) sobre reconstruirlo en vivo
- * con el Settings actual — que puede haber cambiado desde entonces. Cae a
- * reconstruir en vivo si el día no se ha enviado todavía, o si el envío es
- * de antes de que existiera este snapshot (contentHtml vacío).
+ * Contenido del boletín de un grupo en una fecha, preferiendo el snapshot
+ * guardado en el envío real (congelado tal cual se mandó) sobre
+ * reconstruirlo en vivo con los ajustes actuales del grupo — que pueden
+ * haber cambiado desde entonces. Cae a reconstruir en vivo si el día no se
+ * ha enviado todavía, o si el envío es de antes de que existiera este
+ * snapshot (contentHtml vacío).
  */
-export async function getNewsletterForDate(date: string): Promise<NewsletterForDate> {
-  const send = await prisma.newsletterSend.findUnique({ where: { date } });
+export async function getNewsletterForDate(groupId: string, date: string): Promise<NewsletterForDate> {
+  const send = await prisma.newsletterSend.findUnique({ where: { groupId_date: { groupId, date } } });
 
   if (send?.contentHtml) {
     return {
@@ -469,7 +475,7 @@ export async function getNewsletterForDate(date: string): Promise<NewsletterForD
     };
   }
 
-  const content = await buildNewsletter(date);
+  const content = await buildNewsletter(groupId, date);
   return {
     sent: Boolean(send),
     frozen: false,
@@ -576,7 +582,7 @@ function unescapeHtml(value: string): string {
 }
 
 /**
- * Reemplaza el marcador de saludo por la plantilla configurada en Ajustes,
+ * Reemplaza el marcador de saludo por la plantilla configurada en el grupo,
  * sustituyendo {nombre} por el nombre real del destinatario.
  */
 export function personalizeGreeting(

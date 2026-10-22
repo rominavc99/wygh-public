@@ -128,3 +128,84 @@ export async function sendGroupInvites(
   }
   return { total: users.length, sent };
 }
+
+export type ResponseGroupOption = {
+  id: string;
+  name: string;
+  /** Ya salió el boletín de este grupo para esa fecha. */
+  sent: boolean;
+  /** La respuesta ya va a este grupo (o, si todavía no hay respuesta, true: por defecto van todos). */
+  selected: boolean;
+};
+
+/** Los grupos activos de `userId` a los que podría ir su respuesta de `date`. */
+export async function responseGroupOptions(
+  userId: string,
+  date: string,
+  responseId: string | null
+): Promise<ResponseGroupOption[]> {
+  const memberships = await prisma.groupMember.findMany({
+    where: { userId, group: { suspended: false } },
+    include: {
+      group: {
+        select: {
+          id: true,
+          name: true,
+          sends: { where: { date }, select: { id: true } },
+          responses: responseId ? { where: { responseId }, select: { responseId: true } } : false,
+        },
+      },
+    },
+    orderBy: { group: { name: "asc" } },
+  });
+  return memberships.map(({ group }) => ({
+    id: group.id,
+    name: group.name,
+    sent: group.sends.length > 0,
+    selected: responseId ? (group.responses ?? []).length > 0 : true,
+  }));
+}
+
+/**
+ * Los grupos elegidos en el formulario (campo groupIds), limitados a
+ * `allowedIds`. Si solo hay uno permitido, va ahí sin preguntar (el
+ * formulario ni muestra la lista).
+ */
+export function selectedGroupIds(formData: FormData, allowedIds: string[]): string[] {
+  if (allowedIds.length === 1) return allowedIds;
+  const chosen = new Set(formData.getAll("groupIds").filter((v): v is string => typeof v === "string"));
+  return allowedIds.filter((id) => chosen.has(id));
+}
+
+/**
+ * Deja la respuesta en exactamente `selectedIds` dentro de `allowedIds`.
+ * Los grupos fuera de `allowedIds` (p. ej. uno cuyo boletín ya salió, o uno
+ * en pausa) no se tocan.
+ */
+export async function setResponseGroups(responseId: string, selectedIds: string[], allowedIds: string[]): Promise<void> {
+  const current = new Set(
+    (await prisma.responseGroup.findMany({ where: { responseId }, select: { groupId: true } })).map((r) => r.groupId)
+  );
+  const toRemove = allowedIds.filter((id) => current.has(id) && !selectedIds.includes(id));
+  const toAdd = selectedIds.filter((id) => !current.has(id));
+  if (toRemove.length) await prisma.responseGroup.deleteMany({ where: { responseId, groupId: { in: toRemove } } });
+  if (toAdd.length) await prisma.responseGroup.createMany({ data: toAdd.map((groupId) => ({ responseId, groupId })) });
+}
+
+/**
+ * Si se puede responder (o editar) hoy y a qué grupos, con "bloquear tras
+ * el envío" activo: una respuesta es una sola para todos sus grupos, así
+ * que en cuanto sale el boletín de alguno de ellos queda fija (si no, lo
+ * que se ve en ese grupo dejaría de coincidir con lo que se mandó). Sin
+ * respuesta todavía, se puede mientras quede algún grupo sin enviar, y solo
+ * a esos. Sin el bloqueo, siempre se puede y a cualquiera.
+ */
+export function responseLock(
+  options: ResponseGroupOption[],
+  hasResponse: boolean,
+  lockAfterSend: boolean
+): { locked: boolean; allowedGroupIds: string[] } {
+  if (!lockAfterSend) return { locked: false, allowedGroupIds: options.map((o) => o.id) };
+  const locked = hasResponse ? options.some((o) => o.selected && o.sent) : options.every((o) => o.sent);
+  return { locked, allowedGroupIds: locked ? [] : options.filter((o) => !o.sent).map((o) => o.id) };
+}

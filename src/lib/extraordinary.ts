@@ -85,15 +85,27 @@ export async function sendPendingGrantEmails(): Promise<{ total: number; sent: n
 }
 
 /**
- * Tras guardar una respuesta extraordinaria: a todos los activos (menos a
- * quien respondió) les avisa que el boletín de ese día cambió, sin decir
- * quién; a los admins, con el nombre. Best-effort.
+ * Tras guardar una respuesta extraordinaria: a los miembros activos de los
+ * grupos a los que se mandó (menos a quien respondió) les avisa que el
+ * boletín de ese día cambió, sin decir quién; a los admins (de esos
+ * grupos o no), con el nombre. Best-effort.
  */
 export async function notifyExtraordinaryResponse(userId: string, date: string): Promise<void> {
   try {
+    const response = await prisma.response.findUnique({
+      where: { userId_date: { userId, date } },
+      select: { groups: { select: { groupId: true } } },
+    });
+    const groupIds = response?.groups.map((g) => g.groupId) ?? [];
     const [actor, recipients, settings] = await Promise.all([
       prisma.user.findUnique({ where: { id: userId } }),
-      prisma.user.findMany({ where: { active: true, id: { not: userId } } }),
+      prisma.user.findMany({
+        where: {
+          active: true,
+          id: { not: userId },
+          OR: [{ role: "ADMIN" }, { groupMemberships: { some: { groupId: { in: groupIds } } } }],
+        },
+      }),
       getSettings(),
     ]);
     if (!actor) return;

@@ -9,6 +9,7 @@ import { SignOutButton } from "./sign-out-button";
 import { BirthdayPrompt } from "./birthday-prompt";
 import { DEFAULT_GREETING_EMOJI } from "@/lib/user-schema";
 import { unreadNotificationCount } from "@/lib/notifications";
+import { responseGroupOptions, responseLock } from "@/lib/groups";
 
 export default async function HomePage() {
   const session = await auth();
@@ -16,17 +17,26 @@ export default async function HomePage() {
   await markSeen(session.user.id);
 
   const date = todayLocalDate();
-  const [existing, settings, todaysSend, me, unread] = await Promise.all([
+  const [existing, settings, me, unread] = await Promise.all([
     prisma.response.findUnique({ where: { userId_date: { userId: session.user.id, date } } }),
     prisma.settings.upsert({ where: { id: 1 }, create: { id: 1 }, update: {} }),
-    prisma.newsletterSend.findUnique({ where: { date } }),
     prisma.user.findUnique({
       where: { id: session.user.id },
       select: { birthday: true, birthdayPromptDismissed: true, greetingEmoji: true },
     }),
     unreadNotificationCount(session.user.id),
   ]);
-  const locked = settings.lockResponsesAfterSend && Boolean(todaysSend);
+  const groupOptions = await responseGroupOptions(session.user.id, date, existing?.id ?? null);
+  const noGroups = groupOptions.length === 0;
+  const { locked, allowedGroupIds } = responseLock(groupOptions, Boolean(existing), settings.lockResponsesAfterSend);
+  // Los grupos cuyo boletín ya salió se muestran (deshabilitados) para que
+  // se entienda por qué no se pueden elegir.
+  const formGroups = groupOptions.map((o) => ({
+    id: o.id,
+    name: o.name,
+    checked: o.selected,
+    disabled: !allowedGroupIds.includes(o.id),
+  }));
 
   return (
     <main className="relative z-10 flex flex-1 justify-center px-4 py-10">
@@ -44,9 +54,15 @@ export default async function HomePage() {
 
         <div className="win">
           <div className="win-titlebar">
-            <span className="win-icon">{locked ? "🔒" : "💬"}</span>
+            <span className="win-icon">{noGroups ? "🫂" : locked ? "🔒" : "💬"}</span>
             <span className="win-title">
-              {locked ? "Tu respuesta de hoy (bloqueada)" : existing ? "Tu respuesta de hoy" : "¿Qué harás al llegar?"}
+              {noGroups
+                ? "Todavía no estás en un grupo"
+                : locked
+                  ? "Tu respuesta de hoy (bloqueada)"
+                  : existing
+                    ? "Tu respuesta de hoy"
+                    : "¿Qué harás al llegar?"}
             </span>
             <div className="win-btns">
               <div className="win-btn">_</div>
@@ -80,7 +96,7 @@ export default async function HomePage() {
             <SignOutButton />
           </div>
 
-          {locked ? (
+          {noGroups ? null : locked ? (
             <div className="mx-5 mt-4 rounded-lg border border-panel-edge bg-panel-2 px-4 py-2.5 text-sm font-bold text-accent-pink-2">
               {existing
                 ? "🔒 El boletín de hoy ya se envió, así que tu respuesta ya no se puede editar."
@@ -93,7 +109,13 @@ export default async function HomePage() {
           ) : null}
 
           <div className="win-body">
-            {locked && existing ? (
+            {noGroups ? (
+              <p className="text-sm text-ink-soft">
+                Todavía no estás en ningún grupo, así que por ahora no hay boletín al cual mandar tu respuesta. Cuando
+                un admin te agregue a uno (o abras el enlace de invitación que te manden), aquí te va a aparecer el
+                formulario. 🦆
+              </p>
+            ) : locked && existing ? (
               <div className="bubble">
                 {existing.arrivingLate && existing.beforeHomePlan ? (
                   <p>
@@ -156,6 +178,7 @@ export default async function HomePage() {
                 key={existing?.updatedAt.getTime() ?? "new"}
                 existing={existing}
                 draftKey={`wygh:borrador:${session.user.id}:${date}`}
+                groups={formGroups}
               />
             )}
           </div>

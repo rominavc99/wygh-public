@@ -244,9 +244,22 @@ export async function sendWrappedEmails(today: string): Promise<number> {
 // ---------------------------------------------------------------------------
 // 👋 Bienvenida
 
-export async function welcomeParts(name: string): Promise<EmailParts> {
-  const settings = await getSettings();
-  return welcomeEmail({ name, newsletterName: settings.newsletterName, sendTime: settings.sendTime, siteUrl: getSiteUrl() });
+/**
+ * La hora que sale en la bienvenida es la del primer boletín del día entre
+ * los grupos de la persona (o del primer grupo activo, en la vista previa
+ * o si todavía no está en ninguno).
+ */
+export async function welcomeParts(name: string, userId?: string): Promise<EmailParts> {
+  const [settings, groups] = await Promise.all([
+    getSettings(),
+    prisma.group.findMany({
+      where: { suspended: false, ...(userId ? { members: { some: { userId } } } : {}) },
+      orderBy: { sendTime: "asc" },
+      select: { sendTime: true },
+    }),
+  ]);
+  const sendTime = groups[0]?.sendTime ?? (await prisma.group.findFirst({ where: { suspended: false }, orderBy: { sendTime: "asc" } }))?.sendTime ?? "20:00";
+  return welcomeEmail({ name, newsletterName: settings.newsletterName, sendTime, siteUrl: getSiteUrl() });
 }
 
 /** Se llama al dar de alta a alguien; nunca lanza (el alta no debe fallar por el correo). */
@@ -255,7 +268,7 @@ export async function sendWelcomeEmail(userId: string): Promise<void> {
     const settings = await getSettings();
     if (!settings.welcomeEmailEnabled) return;
     const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
-    await deliverOnce(user, "welcome", "1", await welcomeParts(displayName(user)));
+    await deliverOnce(user, "welcome", "1", await welcomeParts(displayName(user), user.id));
   } catch (error) {
     console.error("[extras] No se pudo mandar la bienvenida:", error);
   }

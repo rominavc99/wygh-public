@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useActionState } from "react";
 import { WEEKDAY_NAMES } from "@/lib/weekdays";
 import { updateSettings, type SettingsFormState } from "./actions";
@@ -8,19 +9,10 @@ import { SendNowButton } from "./send-now-button";
 type Settings = {
   newsletterName: string;
   tagline: string;
-  greetingTemplate: string;
-  sendTime: string;
   autoSend: boolean;
-  reminderEnabled: boolean;
   lockResponsesAfterSend: boolean;
   fromName: string;
   fromEmail: string;
-  heroEnabled: boolean;
-  heroTitle: string;
-  heroParagraph: string;
-  heroImageUrl: string;
-  heroLinkUrl: string;
-  heroLinkText: string;
   weeklySummaryEnabled: boolean;
   weeklySummaryDay: number;
   weeklySummaryTime: string;
@@ -63,30 +55,20 @@ export function SettingsForm({
 
   return (
     <form action={formAction} className="flex max-w-lg flex-col gap-4">
-      <Field label="Nombre del boletín" error={fieldErrors.newsletterName}>
+      <p className="rounded-lg border border-panel-edge bg-panel-2 px-4 py-2.5 text-sm text-ink-soft">
+        🫂 Saludo, hora de envío, recordatorio, portada y frase fija son de cada grupo: se editan en{" "}
+        <Link href="/admin/grupos" className="font-bold underline">
+          Grupos
+        </Link>
+        .
+      </p>
+
+      <Field label="Nombre del sitio" error={fieldErrors.newsletterName} hint="Sale en el panel, en la pestaña del navegador y en los correos que no son de un grupo.">
         <input name="newsletterName" defaultValue={settings.newsletterName} className="xp-input" required />
       </Field>
 
-      <Field label="Lema" error={fieldErrors.tagline}>
+      <Field label="Lema del sitio" error={fieldErrors.tagline}>
         <input name="tagline" defaultValue={settings.tagline} className="xp-input" />
-      </Field>
-
-      <Field
-        label="Saludo del boletín"
-        error={fieldErrors.greetingTemplate}
-        hint='Usa {nombre} donde quieras que aparezca el nombre de cada persona. Ej: "Hola, {nombre}, esto es lo que estarán haciendo tus amigos el día de hoy:"'
-      >
-        <textarea
-          name="greetingTemplate"
-          defaultValue={settings.greetingTemplate}
-          className="xp-textarea"
-          rows={2}
-          required
-        />
-      </Field>
-
-      <Field label="Hora de envío (HH:MM, hora local del servidor)" error={fieldErrors.sendTime}>
-        <input name="sendTime" type="time" defaultValue={settings.sendTime} className="xp-input" required />
       </Field>
 
       <label className="flex items-center gap-2 text-sm font-bold text-ink">
@@ -96,17 +78,7 @@ export function SettingsForm({
           defaultChecked={settings.autoSend}
           className="h-4 w-4 accent-[var(--accent-pink)]"
         />
-        Envío automático activado
-      </label>
-
-      <label className="flex items-center gap-2 text-sm font-bold text-ink">
-        <input
-          type="checkbox"
-          name="reminderEnabled"
-          defaultChecked={settings.reminderEnabled}
-          className="h-4 w-4 accent-[var(--accent-pink)]"
-        />
-        ⏰ Recordar a quien no haya respondido (1 hora antes del envío)
+        Envío automático activado (todos los grupos)
       </label>
 
       <label className="flex items-center gap-2 text-sm font-bold text-ink">
@@ -126,76 +98,6 @@ export function SettingsForm({
       <Field label="Correo del remitente" error={fieldErrors.fromEmail}>
         <input name="fromEmail" type="email" defaultValue={settings.fromEmail} className="xp-input" />
       </Field>
-
-      <div className="mt-2 flex flex-col gap-4 rounded-xl border border-panel-edge bg-panel-2 p-4">
-        <div>
-          <h3 className="text-base font-bold text-ink">📰 Portada del boletín</h3>
-          <p className="text-xs text-ink-faint">
-            Sección tipo periódico arriba de las respuestas del día. Si la desactivas o
-            dejas el título vacío, no aparece.
-          </p>
-        </div>
-
-        <label className="flex items-center gap-2 text-sm font-bold text-ink">
-          <input
-            type="checkbox"
-            name="heroEnabled"
-            defaultChecked={settings.heroEnabled}
-            className="h-4 w-4 accent-[var(--accent-pink)]"
-          />
-          Mostrar portada
-        </label>
-
-        <Field label="Título principal" error={fieldErrors.heroTitle}>
-          <input name="heroTitle" defaultValue={settings.heroTitle} className="xp-input" />
-        </Field>
-
-        <Field label="Párrafo (opcional)" error={fieldErrors.heroParagraph}>
-          <textarea
-            name="heroParagraph"
-            defaultValue={settings.heroParagraph}
-            className="xp-textarea"
-            rows={3}
-          />
-        </Field>
-
-        <Field
-          label="URL de la foto principal (opcional)"
-          error={fieldErrors.heroImageUrl}
-          hint="Pega el enlace directo a una imagen ya subida a algún lado (ej. imgur, Google Photos con enlace público, etc.)."
-        >
-          <input
-            name="heroImageUrl"
-            type="url"
-            placeholder="https://…"
-            defaultValue={settings.heroImageUrl}
-            className="xp-input"
-          />
-        </Field>
-
-        <Field
-          label="Enlace (opcional)"
-          error={fieldErrors.heroLinkUrl}
-          hint="Si lo dejas vacío, la portada no muestra ningún botón/enlace."
-        >
-          <input
-            name="heroLinkUrl"
-            type="url"
-            placeholder="https://…"
-            defaultValue={settings.heroLinkUrl}
-            className="xp-input"
-          />
-        </Field>
-
-        <Field label="Texto del enlace" error={fieldErrors.heroLinkText}>
-          <input
-            name="heroLinkText"
-            defaultValue={settings.heroLinkText}
-            placeholder="Leer más"
-            className="xp-input"
-          />
-        </Field>
-      </div>
 
       <div className="mt-2 flex flex-col gap-4 rounded-xl border border-panel-edge bg-panel-2 p-4">
         <div>

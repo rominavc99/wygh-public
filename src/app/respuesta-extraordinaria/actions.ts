@@ -7,6 +7,7 @@ import { rateLimit } from "@/lib/rate-limit";
 import { todayLocalDate } from "@/lib/date";
 import { writeResponse, type SaveResponseState } from "@/lib/save-response";
 import { EXTRAORDINARY_PATH, notifyExtraordinaryResponse } from "@/lib/extraordinary";
+import { activeGroupIdsOf } from "@/lib/groups";
 
 /**
  * Guarda la respuesta extraordinaria para el día elegido. Se salta el
@@ -56,6 +57,12 @@ export async function saveExtraordinaryResponse(
   if (existing) {
     return { status: "error", message: "Ya tienes una respuesta para ese día." };
   }
+  // Ese día ya pasó (sus boletines ya salieron, o no salieron porque la app
+  // falló), así que se puede mandar a cualquiera de sus grupos.
+  const groupIds = await activeGroupIdsOf(userId);
+  if (groupIds.length === 0) {
+    return { status: "error", message: "Todavía no estás en ningún grupo, así que no hay a dónde mandar tu respuesta." };
+  }
 
   // Se aparta el permiso antes de guardar, para que dos envíos seguidos no
   // lo usen dos veces; si la respuesta no se guarda, se suelta. Al admin
@@ -84,7 +91,7 @@ export async function saveExtraordinaryResponse(
 
   let result: SaveResponseState;
   try {
-    result = await writeResponse(userId, date, formData, null);
+    result = await writeResponse(userId, date, formData, null, groupIds);
   } catch (error) {
     await release();
     throw error;

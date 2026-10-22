@@ -11,6 +11,8 @@ import { sendDailyExtras } from "@/lib/send-extras";
 import { pruneNotifications } from "@/lib/notifications";
 import { todayLocalDate, nowLocalTime, subtractMinutesFromTime } from "@/lib/date";
 
+// Cada grupo tiene su propia hora de envío (y su recordatorio 1 hora
+// antes); los grupos en pausa no mandan nada.
 async function checkAndSend() {
   const settings = await prisma.settings.upsert({
     where: { id: 1 },
@@ -19,35 +21,34 @@ async function checkAndSend() {
   });
 
   if (!settings.autoSend) return;
-  if (nowLocalTime() !== settings.sendTime) return;
-
+  const now = nowLocalTime();
+  const groups = await prisma.group.findMany({ where: { suspended: false, sendTime: now } });
   const date = todayLocalDate();
-  const existing = await prisma.newsletterSend.findUnique({ where: { date } });
-  if (existing) return;
 
-  console.log(`[worker] Hora de envío (${settings.sendTime}) alcanzada. Enviando boletín del ${date}...`);
-  const result = await sendDailyNewsletter(date);
-  console.log(
-    `[worker] Resultado: ${result.status} — ${result.recipientCount} destinatarios, ${result.responseCount} respuestas.` +
-      (result.error ? ` Error: ${result.error}` : "")
-  );
+  for (const group of groups) {
+    const existing = await prisma.newsletterSend.findUnique({ where: { groupId_date: { groupId: group.id, date } } });
+    if (existing) continue;
+
+    console.log(`[worker] Hora de envío de "${group.name}" (${group.sendTime}). Enviando boletín del ${date}...`);
+    const result = await sendDailyNewsletter(group.id, date);
+    console.log(
+      `[worker] "${group.name}": ${result.status} — ${result.recipientCount} destinatarios, ${result.responseCount} respuestas.` +
+        (result.error ? ` Error: ${result.error}` : "")
+    );
+  }
 }
 
 async function checkAndSendReminder() {
-  const settings = await prisma.settings.upsert({
-    where: { id: 1 },
-    create: { id: 1 },
-    update: {},
-  });
-
-  if (!settings.reminderEnabled) return;
-  const reminderTime = subtractMinutesFromTime(settings.sendTime, 60);
-  if (nowLocalTime() !== reminderTime) return;
-
+  const now = nowLocalTime();
+  const groups = await prisma.group.findMany({ where: { suspended: false, reminderEnabled: true } });
   const date = todayLocalDate();
-  const result = await sendReminderIfNeeded(date);
-  if (result.status === "sent") {
-    console.log(`[worker] Recordatorio enviado a ${result.recipientCount} persona(s) que faltaban responder.`);
+
+  for (const group of groups) {
+    if (now !== subtractMinutesFromTime(group.sendTime, 60)) continue;
+    const result = await sendReminderIfNeeded(group.id, date);
+    if (result.status === "sent") {
+      console.log(`[worker] Recordatorio de "${group.name}" enviado a ${result.recipientCount} persona(s) que faltaban responder.`);
+    }
   }
 }
 

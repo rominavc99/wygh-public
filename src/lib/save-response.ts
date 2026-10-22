@@ -8,7 +8,7 @@ import {
   upsertHeroPhotoForResponse,
 } from "@/lib/response-photos";
 import { upsertPhraseForResponse, deletePhraseForResponse } from "@/lib/response-phrases";
-import { ensureResponseGroups } from "@/lib/groups";
+import { selectedGroupIds, setResponseGroups } from "@/lib/groups";
 
 export type SaveResponseState =
   | { status: "idle" }
@@ -18,10 +18,11 @@ export type SaveResponseState =
 type ExistingRow = Awaited<ReturnType<typeof prisma.response.findUnique>>;
 
 /**
- * Valida y guarda la respuesta de `userId` para `date` (foto, frase y la
- * fila en Response). Lo comparten el formulario diario (saveResponse) y el
- * de respuestas extraordinarias; la sesión, el límite de intentos y si se
- * puede responder ese día los revisa cada Server Action antes de llamarla.
+ * Valida y guarda la respuesta de `userId` para `date` (foto, frase, la
+ * fila en Response y a qué grupos va, dentro de `allowedGroupIds`). Lo
+ * comparten el formulario diario (saveResponse) y el de respuestas
+ * extraordinarias; la sesión, el límite de intentos, si se puede responder
+ * ese día y a qué grupos los revisa cada Server Action antes de llamarla.
  * No va en un archivo "use server" a propósito: ahí quedaría expuesta como
  * acción y cualquiera podría guardar a nombre de otro.
  */
@@ -29,8 +30,14 @@ export async function writeResponse(
   userId: string,
   date: string,
   formData: FormData,
-  existing: ExistingRow
+  existing: ExistingRow,
+  allowedGroupIds: string[]
 ): Promise<SaveResponseState> {
+  const groupIds = selectedGroupIds(formData, allowedGroupIds);
+  if (groupIds.length === 0) {
+    return { status: "error", fieldErrors: { groups: "Elige al menos un grupo." }, message: "Revisa los campos marcados." };
+  }
+
   // La foto nueva (si viene) se valida primero pero se escribe a disco hasta
   // que el resto del formulario también pasó la validación — antes se
   // guardaba de entrada y, si después fallaba otro campo, quedaba un archivo
@@ -84,7 +91,7 @@ export async function writeResponse(
     create: { userId, date, ...parsed.data, phraseId },
     update: { ...parsed.data, phraseId },
   });
-  await ensureResponseGroups(saved.id, userId);
+  await setResponseGroups(saved.id, groupIds, allowedGroupIds);
 
   return { status: "success" };
 }

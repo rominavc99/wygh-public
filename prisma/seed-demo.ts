@@ -177,17 +177,20 @@ async function main() {
 
     // Registro de envío para que el día aparezca en /boletines (sin mandar
     // ningún correo real: se crea el registro directo, nunca se llama a
-    // sendDailyNewsletter).
-    await prisma.newsletterSend.upsert({
-      where: { date },
-      create: {
-        date,
-        recipientCount: respondents.length,
-        responseCount: respondents.length,
-        status: "sent",
-      },
-      update: {},
-    });
+    // sendDailyNewsletter), en cada grupo activo.
+    for (const group of await prisma.group.findMany({ where: { suspended: false } })) {
+      await prisma.newsletterSend.upsert({
+        where: { groupId_date: { groupId: group.id, date } },
+        create: {
+          groupId: group.id,
+          date,
+          recipientCount: respondents.length,
+          responseCount: respondents.length,
+          status: "sent",
+        },
+        update: {},
+      });
+    }
   }
 
   // Un par de frases con autor, para que la portada de algún día muestre algo.

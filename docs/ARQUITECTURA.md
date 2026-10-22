@@ -144,8 +144,16 @@ prisma/schema.prisma             # Modelo de datos
    descripción y una frase para el catálogo.
 2. Se guarda con la Server Action `saveResponse` (`src/app/actions.ts`)
    como `upsert` en `Response`, única por `(userId, date)`.
-3. Si `Settings.lockResponsesAfterSend` está activo, una vez enviado el
-   boletín del día ya no se puede editar.
+3. **A qué grupos va** (`ResponseGroup`): quien está en dos o más grupos
+   activos ve "¿A qué grupos la mandas?" con todos marcados por defecto;
+   con un solo grupo no se pregunta y va ahí. Quien no está en ningún
+   grupo ve un aviso en vez del formulario. Las opciones salen de
+   `responseGroupOptions()` (`src/lib/groups.ts`).
+4. Si `Settings.lockResponsesAfterSend` está activo (`responseLock()`): la
+   respuesta es una sola para todos sus grupos, así que en cuanto sale el
+   boletín de alguno de ellos ya no se puede editar. Sin respuesta, se
+   puede responder mientras quede algún grupo sin enviar, y solo a esos
+   (los que ya salieron se muestran deshabilitados).
 
 ### Respuestas extraordinarias (`/respuesta-extraordinaria`)
 
@@ -221,8 +229,8 @@ Proceso PM2 aparte que cada minuto revisa:
 
 | Qué | Cuándo | Función | Idempotencia |
 |---|---|---|---|
-| Boletín diario | `Settings.sendTime` (si `autoSend`) | `sendDailyNewsletter()` | `NewsletterSend.date` |
-| Recordatorio a quien no ha respondido | 1 h antes de `sendTime` (si `reminderEnabled`) | `sendReminderIfNeeded()` | `ReminderSend.date` |
+| Boletín diario de cada grupo | `Group.sendTime` de cada grupo no suspendido (si `Settings.autoSend`) | `sendDailyNewsletter(groupId, date)` | `NewsletterSend(groupId, date)` |
+| Recordatorio a quien no ha respondido | 1 h antes del `sendTime` de cada grupo (si su `reminderEnabled`); solo a sus miembros sin respuesta ese día | `sendReminderIfNeeded(groupId, date)` | `ReminderSend(groupId, date)` |
 | Boletín de cumpleaños | `Settings.birthdaySendTime` (si `birthdayEnabled`) | `sendBirthdayNewsletter()` | `BirthdayNewsletter(userId, date)` |
 | Comunicaciones programadas | cuando llega su `scheduledAt` | `sendCommunicationNow()` + aviso a admins | `Communication.status` |
 | Resumen semanal de participación | `weeklySummaryDay` a las `weeklySummaryTime` (si `weeklySummaryEnabled`) | `sendWeeklySummary()` | `WeeklySummarySend.weekStart` |
@@ -235,7 +243,8 @@ Todo se manda solo a usuarios activos.
 
 `getParticipationStats()` (`src/lib/participation-stats.ts`) calcula
 todo a partir de los **días cerrados**: los días con fila en
-`NewsletterSend`, que son en los que se esperaba respuesta. El día de hoy
+`NewsletterSend` (de cualquier grupo), que son en los que se esperaba
+respuesta. El día de hoy
 no cuenta hasta que sale el boletín, un día sin boletín no se le "debe" a
 nadie, y a cada persona solo le cuentan los días desde su alta
 (`User.createdAt`). Los "días seguidos sin responder" son los días
@@ -270,25 +279,29 @@ cerrados desde su última respuesta.
 
 ## El boletín diario
 
-`buildNewsletter()` (`src/lib/newsletter.ts`) arma el HTML y el texto
-plano:
+Cada grupo tiene su propio boletín: `buildNewsletter(groupId, date)`
+(`src/lib/newsletter.ts`) arma el HTML y el texto plano solo con las
+respuestas mandadas a ese grupo, con su nombre, lema y saludo, y se le
+manda solo a sus miembros activos.
 
-- **Portada** (opcional, `/admin/ajustes`): título, párrafo, foto, frase
-  del día y un enlace.
-  - La foto y la frase del día se resuelven una vez y quedan fijas en
-    `DailyPick` (ver `hero-photos.ts` y `phrases.ts`). Prioridad: la que
+- **Portada** (opcional, en `/admin/grupos/[id]`): título, párrafo, foto,
+  frase del día y un enlace.
+  - La foto y la frase del día se resuelven una vez por grupo y quedan
+    fijas en `DailyPick` (ver `hero-photos.ts` y `phrases.ts`). Salen del
+    catálogo y de las respuestas mandadas a ese grupo, nunca de las de
+    otro. Prioridad: la que
     eligió el admin, luego la que ya quedó fija, luego una "programada"
     para ese día, y si no, una al azar estable con `pickStable()`
     evitando repetir el evento del día anterior. Así la vista previa y el
     envío coinciden y la portada no cambia sola a media tarde.
   - Desde `/admin/boletin` se pueden elegir a mano o re-rolar.
-- **Una tarjeta por respuesta del día**: avatar, nombre a mostrar
+- **Una tarjeta por respuesta del día mandada al grupo**: avatar, nombre a mostrar
   (`displayName()`), plan, comida, nota y foto.
 - El saludo se personaliza por destinatario (`personalizeGreeting()`).
 
 Al enviarse, el contenido queda **congelado** en `NewsletterSend`
 (`contentHtml`, `contentText`, `heroJson`): `/boletines` y el panel lo
-muestran tal cual salió, aunque los Ajustes cambien después.
+muestran tal cual salió, aunque los ajustes del grupo cambien después.
 
 `renderEmailShell()`, `renderHero()`, `responseDetailsHtml()` y
 `deliverToActiveUsers()` son piezas compartidas con el boletín de
@@ -326,10 +339,13 @@ worker manda a todos los activos un boletín extra
 
 ## `/boletines`: archivo interactivo
 
-- Lista de boletines enviados (diarios y de cumpleaños), sin los que el
-  admin archivó.
+- Por grupo: cada quien ve los de sus grupos (también los de un grupo en
+  pausa) y elige el grupo arriba si está en varios; un admin ve todos.
+  `?grupo=<id>` elige el grupo (si no es tuyo, se usa el primero tuyo).
+- Lista de boletines enviados del grupo (diarios y de cumpleaños), sin
+  los que el admin archivó.
 - Cada boletín muestra la portada congelada y las respuestas de ese día
-  como tarjetas (`response-card.tsx`) donde se puede:
+  mandadas a ese grupo como tarjetas (`response-card.tsx`) donde se puede:
   - **Reaccionar** a la respuesta o a cualquier comentario
     (`reaction-bar.tsx`): emojis rápidos, selector completo y emoticones
     ascii. Repetir la misma reacción la quita.
@@ -379,30 +395,30 @@ Frases, Cumpleaños, Envíos, Comunicaciones, Ajustes.
   eligen sus grupos (vienen marcados los que no están en pausa), y cada
   fila muestra a qué grupos pertenece.
 - **Grupos** (`/admin/grupos`): crear, renombrar y suspender (pausa)
-  grupos, agregar o quitar miembros a mano, y el enlace para unirse
+  grupos, los ajustes del boletín de cada uno (lema, saludo, hora,
+  recordatorio, portada, frase fija), agregar o quitar miembros a mano, y el enlace para unirse
   (crear, copiar, regenerar o desactivar). "Invitar amigos" manda a los
   usuarios activos que se elijan un correo con ese enlace
   (`sendGroupInvites()` en `src/lib/groups.ts`). El enlace lleva a
   `/grupos/unirse/<token>`, que pide sesión (no crea cuentas) y une con
   un botón, no al abrir la página, porque algunos correos abren los
   enlaces solos para revisarlos. Un grupo en pausa no admite gente nueva.
-- **Boletín**: vista previa exacta del día (o de cualquier fecha), elegir
-  o re-rolar foto y frase, envío manual o reenvío.
+- **Boletín**: vista previa exacta del día de un grupo (o de cualquier
+  fecha), elegir o re-rolar foto y frase, envío manual o reenvío.
 - **Fotos**: catálogo sincronizado con `public/IMG` más las fotos de
   respuestas; cada una puede llevar descripción y fecha programada.
 - **Frases**: catálogo de frases; las que vienen de respuestas llegan con
-  autor y fecha.
+  autor y fecha. Una frase se puede fijar en uno o varios grupos.
 - **Cumpleaños**: próximos cumpleaños, vista previa/envío por persona y
   ajustes del boletín de cumpleaños.
-- **Envíos**: historial de `NewsletterSend`; archivar oculta un boletín
-  en `/boletines` sin borrarlo.
+- **Envíos**: historial de `NewsletterSend` de todos los grupos;
+  archivar oculta un boletín en `/boletines` sin borrarlo.
 - **Comunicaciones**: correos sueltos con editor de texto enriquecido (el
   HTML se sanea en `rich-text.ts`), a todos o a personas elegidas, de
   inmediato o programados. De los programados, los admins reciben un
   correo con el resultado.
-- **Ajustes**: nombre, lema, saludo, horarios, envío automático,
-  recordatorio, bloqueo tras el envío, remitente, portada, resumen
-  semanal, correo de inactividad y correos especiales (con vista previa
+- **Ajustes**: nombre y lema del sitio, envío automático (todos los
+  grupos), bloqueo tras el envío, remitente, resumen semanal, correo de inactividad y correos especiales (con vista previa
   de cada uno en `/admin/estadisticas/vista-previa?correo=…`). Cada
   correo tiene "Enviar ahora" (`src/lib/send-now.ts`): lo manda en el
   momento a quienes les tocaría hoy, mostrando antes la lista, y no lo

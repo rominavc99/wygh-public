@@ -4,13 +4,13 @@ import { useState, useTransition } from "react";
 import { sendNewsletterNow } from "./actions";
 import type { SendResult } from "@/lib/send-newsletter";
 
-export function SendControls({ date, alreadySent }: { date: string; alreadySent: boolean }) {
+export function SendControls({ groupId, date, alreadySent }: { groupId: string; date: string; alreadySent: boolean }) {
   const [pending, startTransition] = useTransition();
   const [result, setResult] = useState<SendResult | null>(null);
 
   function trigger(force: boolean) {
     startTransition(async () => {
-      const r = await sendNewsletterNow(date, force);
+      const r = await sendNewsletterNow(groupId, date, force);
       setResult(r);
     });
   }

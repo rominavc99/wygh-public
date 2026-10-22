@@ -81,7 +81,9 @@ export async function getParticipationStats({
       where: { active: true },
       select: { id: true, name: true, username: true, email: true, createdAt: true },
     }),
-    prisma.newsletterSend.findMany({ select: { date: true }, orderBy: { date: "asc" } }),
+    // Un día cuenta como cerrado si salió el boletín de algún grupo (cada
+    // grupo manda el suyo, así que puede haber varios por fecha).
+    prisma.newsletterSend.findMany({ select: { date: true }, distinct: ["date"], orderBy: { date: "asc" } }),
     prisma.response.groupBy({ by: ["userId"], _max: { date: true } }),
     prisma.response.findMany({
       where: { date: dateRange },

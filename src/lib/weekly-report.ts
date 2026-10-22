@@ -125,7 +125,11 @@ export async function buildWeeklyReport(weekEnd: string): Promise<WeeklyReport> 
       orderBy: { date: "asc" },
     }),
     prisma.user.findMany({ select: { name: true, username: true, active: true, createdAt: true, birthday: true } }),
-    prisma.newsletterSend.findMany({ where: { date: { gte: weekStart, lte: weekEnd } }, orderBy: { date: "asc" } }),
+    prisma.newsletterSend.findMany({
+      where: { date: { gte: weekStart, lte: weekEnd } },
+      orderBy: { date: "asc" },
+      include: { group: { select: { name: true } } },
+    }),
   ]);
 
   const users = stats.users.filter((u) => u.eligibleDays > 0);
@@ -190,7 +194,7 @@ export async function buildWeeklyReport(weekEnd: string): Promise<WeeklyReport> 
   const sendIssues = [
     ...sends
       .filter((s) => s.status !== "sent")
-      .map((s) => `Boletín del ${shortDate(s.date)}: ${s.status === "partial" ? "envío parcial" : "falló"}${s.error ? ` (${s.error})` : ""}`),
+      .map((s) => `Boletín de ${s.group.name} del ${shortDate(s.date)}: ${s.status === "partial" ? "envío parcial" : "falló"}${s.error ? ` (${s.error})` : ""}`),
   ];
   const missingDays = stats.days.length < 7 ? 7 - stats.days.length : 0;
   if (missingDays) sendIssues.push(`${plural(missingDays, "día", "días")} de la semana sin boletín.`);

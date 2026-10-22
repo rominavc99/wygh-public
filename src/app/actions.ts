@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { rateLimit } from "@/lib/rate-limit";
 import { todayLocalDate } from "@/lib/date";
 import { writeResponse, type SaveResponseState } from "@/lib/save-response";
+import { responseGroupOptions, responseLock } from "@/lib/groups";
 
 export type { SaveResponseState };
 
@@ -27,20 +28,26 @@ export async function saveResponse(
 
   const date = todayLocalDate();
 
-  const [existing, settings, existingSend] = await Promise.all([
+  const [existing, settings] = await Promise.all([
     prisma.response.findUnique({ where: { userId_date: { userId: session.user.id, date } } }),
     prisma.settings.upsert({ where: { id: 1 }, create: { id: 1 }, update: {} }),
-    prisma.newsletterSend.findUnique({ where: { date } }),
   ]);
+  const options = await responseGroupOptions(session.user.id, date, existing?.id ?? null);
+  if (options.length === 0) {
+    return { status: "error", message: "Todavía no estás en ningún grupo, así que no hay a dónde mandar tu respuesta." };
+  }
 
-  if (settings.lockResponsesAfterSend && existingSend) {
+  const { locked, allowedGroupIds } = responseLock(options, Boolean(existing), settings.lockResponsesAfterSend);
+  if (locked) {
     return {
       status: "error",
-      message: "El boletín de hoy ya se envió, así que tu respuesta ya no se puede editar.",
+      message: existing
+        ? "El boletín de hoy ya se envió, así que tu respuesta ya no se puede editar."
+        : "Los boletines de hoy ya se enviaron. Ya no puedes responder por hoy.",
     };
   }
 
-  const result = await writeResponse(session.user.id, date, formData, existing);
+  const result = await writeResponse(session.user.id, date, formData, existing, allowedGroupIds);
   if (result.status === "success") revalidatePath("/");
   return result;
 }
