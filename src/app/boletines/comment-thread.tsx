@@ -226,73 +226,61 @@ function CommentComposer({
           </>
         ) : null}
         {removePhoto ? <input type="hidden" name="removePhoto" value="on" /> : null}
-        <div className="flex items-start gap-2">
-          <div className="relative flex-1">
-            <textarea
-              ref={textareaRef}
-              name="text"
-              rows={1}
-              maxLength={1000}
-              value={text}
-              placeholder={replyTo ? "Escribe tu respuesta…" : "Comenta… (@ para etiquetar)"}
-              className="xp-input w-full text-xs"
-              required={!shownPhoto}
-              onChange={(e) => {
-                setText(e.target.value);
-                updateQuery(e.target.value, e.target.selectionStart);
-              }}
-              onClick={(e) => updateQuery(e.currentTarget.value, e.currentTarget.selectionStart)}
-              onBlur={() => setTimeout(() => setQuery(null), 150)}
-              onKeyDown={(e) => {
-                if (!suggestions.length) return;
-                if (e.key === "ArrowDown") {
-                  e.preventDefault();
-                  setHighlight((h) => (h + 1) % suggestions.length);
-                } else if (e.key === "ArrowUp") {
-                  e.preventDefault();
-                  setHighlight((h) => (h - 1 + suggestions.length) % suggestions.length);
-                } else if (e.key === "Enter" || e.key === "Tab") {
-                  e.preventDefault();
-                  pickPerson(suggestions[highlight]);
-                } else if (e.key === "Escape") {
-                  setQuery(null);
-                }
-              }}
-              aria-autocomplete="list"
-            />
-            {suggestions.length ? (
-              <ul
-                role="listbox"
-                className="absolute left-0 top-full z-20 mt-1 w-56 max-w-full overflow-hidden rounded-lg border-2 border-panel-edge bg-panel shadow-lg"
-              >
-                {suggestions.map((person, i) => (
-                  <li key={person.id} role="option" aria-selected={i === highlight}>
-                    <button
-                      type="button"
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => pickPerson(person)}
-                      className={`block w-full px-3 py-1.5 text-left text-xs ${i === highlight ? "bg-[var(--bubble-1)] font-bold" : ""} text-ink hover:bg-[var(--bubble-1)]`}
-                    >
-                      @{person.name}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-          </div>
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={photoBusy}
-            className="xp-btn-secondary shrink-0 text-xs"
-            aria-label={shownPhoto ? "Cambiar foto" : "Agregar foto"}
-            title={shownPhoto ? "Cambiar foto" : "Agregar foto"}
-          >
-            📷
-          </button>
-          <button type="submit" disabled={pending || photoBusy} className="xp-btn-secondary shrink-0 text-xs">
-            {pending ? "…" : submitLabel}
-          </button>
+        {/* El texto va solo en su renglón y los botones abajo: en la misma
+            fila, en pantallas de celular el 📷 y "Enviar" dejaban el cuadro
+            tan angosto que no se podía escribir. */}
+        <div className="relative">
+          <textarea
+            ref={textareaRef}
+            name="text"
+            rows={2}
+            maxLength={1000}
+            value={text}
+            placeholder={replyTo ? "Escribe tu respuesta…" : "Comenta… (@ para etiquetar)"}
+            className="xp-input w-full text-xs"
+            required={!shownPhoto}
+            onChange={(e) => {
+              setText(e.target.value);
+              updateQuery(e.target.value, e.target.selectionStart);
+            }}
+            onClick={(e) => updateQuery(e.currentTarget.value, e.currentTarget.selectionStart)}
+            onBlur={() => setTimeout(() => setQuery(null), 150)}
+            onKeyDown={(e) => {
+              if (!suggestions.length) return;
+              if (e.key === "ArrowDown") {
+                e.preventDefault();
+                setHighlight((h) => (h + 1) % suggestions.length);
+              } else if (e.key === "ArrowUp") {
+                e.preventDefault();
+                setHighlight((h) => (h - 1 + suggestions.length) % suggestions.length);
+              } else if (e.key === "Enter" || e.key === "Tab") {
+                e.preventDefault();
+                pickPerson(suggestions[highlight]);
+              } else if (e.key === "Escape") {
+                setQuery(null);
+              }
+            }}
+            aria-autocomplete="list"
+          />
+          {suggestions.length ? (
+            <ul
+              role="listbox"
+              className="absolute left-0 top-full z-20 mt-1 w-56 max-w-full overflow-hidden rounded-lg border-2 border-panel-edge bg-panel shadow-lg"
+            >
+              {suggestions.map((person, i) => (
+                <li key={person.id} role="option" aria-selected={i === highlight}>
+                  <button
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => pickPerson(person)}
+                    className={`block w-full px-3 py-1.5 text-left text-xs ${i === highlight ? "bg-[var(--bubble-1)] font-bold" : ""} text-ink hover:bg-[var(--bubble-1)]`}
+                  >
+                    @{person.name}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
         </div>
         {photoBusy ? <p className="text-[11px] text-ink-faint">Procesando foto…</p> : null}
         {shownPhoto ? (
@@ -304,11 +292,28 @@ function CommentComposer({
             </button>
           </div>
         ) : null}
-        {onCancel ? (
-          <button type="button" onClick={onCancel} className="self-start text-[11px] font-bold text-ink-faint hover:text-danger">
-            Cancelar
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={photoBusy}
+            className="xp-btn-secondary shrink-0 text-xs"
+            aria-label={shownPhoto ? "Cambiar foto" : "Agregar foto"}
+            title={shownPhoto ? "Cambiar foto" : "Agregar foto"}
+          >
+            📷 {shownPhoto ? "Cambiar" : "Foto"}
           </button>
-        ) : null}
+          <div className="ml-auto flex items-center gap-3">
+            {onCancel ? (
+              <button type="button" onClick={onCancel} className="text-[11px] font-bold text-ink-faint hover:text-danger">
+                Cancelar
+              </button>
+            ) : null}
+            <button type="submit" disabled={pending || photoBusy} className="xp-btn-secondary shrink-0 text-xs">
+              {pending ? "…" : submitLabel}
+            </button>
+          </div>
+        </div>
       </form>
       {/* Fuera del <form> a propósito: el archivo en sí no se manda, solo su
           versión preparada en base64 (campos photoData/photoType). Sin
