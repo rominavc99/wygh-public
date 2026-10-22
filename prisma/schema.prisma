@@ -103,6 +103,8 @@ model Group {
   sends       NewsletterSend[]
   reminders   ReminderSend[]
   dailyPicks  DailyPick[]
+  reactions   Reaction[]
+  comments    Comment[]
 }
 
 model GroupMember {
@@ -133,27 +135,33 @@ model ResponseGroup {
 // solo es para poder agrupar/renderizar cada tipo por separado en la UI.
 // Un usuario puede reaccionar con varios emojis distintos a la misma
 // respuesta, pero solo una vez con cada uno (@@unique) — repetir el mismo
-// quita la reacción (toggle), ver src/app/boletines/actions.ts.
+// quita la reacción (toggle), ver src/app/boletines/actions.ts. Cada grupo
+// tiene sus propias reacciones: una respuesta mandada a dos grupos se
+// reacciona por separado en cada uno.
 model Reaction {
   id         String   @id @default(cuid())
   responseId String
   response   Response @relation(fields: [responseId], references: [id], onDelete: Cascade)
+  groupId    String
+  group      Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
   userId     String
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   emoji      String
   kind       String // "emoji" | "ascii"
   createdAt  DateTime @default(now())
 
-  @@unique([responseId, userId, emoji])
+  @@unique([responseId, groupId, userId, emoji])
 }
 
-// Comentario en el hilo de una respuesta en /boletines. Hilo plano (sin
-// respuestas anidadas) — todos los comentarios de una respuesta se listan
-// en orden cronológico.
+// Comentario en el hilo de una respuesta en /boletines, dentro de un grupo:
+// una respuesta mandada a dos grupos tiene un hilo aparte en cada uno (sus
+// reacciones van con el comentario). Los hilos tienen un solo nivel.
 model Comment {
   id         String   @id @default(cuid())
   responseId String
   response   Response @relation(fields: [responseId], references: [id], onDelete: Cascade)
+  groupId    String
+  group      Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
   userId     String
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   /// Puede quedar vacío si el comentario es solo una foto.
@@ -172,6 +180,8 @@ model Comment {
   parent     Comment?  @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
   replies    Comment[] @relation("CommentReplies")
   mentions   CommentMention[]
+
+  @@index([responseId, groupId])
 }
 
 /// Persona etiquetada (@nombre) en un comentario.

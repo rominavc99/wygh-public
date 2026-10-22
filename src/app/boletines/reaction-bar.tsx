@@ -11,8 +11,11 @@ export type { ReactionSummary };
 
 type PickerView = "quick" | "emoji" | "ascii" | "who" | null;
 
-/** A qué se reacciona: la respuesta completa o un comentario de su hilo. */
-export type ReactionTarget = { type: "response" | "comment"; id: string };
+/**
+ * A qué se reacciona: la respuesta completa (dentro del grupo en que se ve)
+ * o un comentario de su hilo (el comentario ya sabe de qué grupo es).
+ */
+export type ReactionTarget = { type: "response"; id: string; groupId: string } | { type: "comment"; id: string };
 
 export function ReactionBar({
   target,
@@ -35,7 +38,7 @@ export function ReactionBar({
     setView(null);
     setPending((p) => ({ ...p, [emoji]: true }));
     startTransition(async () => {
-      if (target.type === "response") await toggleReaction(target.id, emoji, kind);
+      if (target.type === "response") await toggleReaction(target.id, target.groupId, emoji, kind);
       else await toggleCommentReaction(target.id, emoji, kind);
       setPending((p) => ({ ...p, [emoji]: false }));
     });

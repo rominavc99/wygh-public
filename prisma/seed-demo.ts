@@ -158,6 +158,7 @@ async function main() {
           .create({
             data: {
               responseId: response.id,
+              groupId: "grupo-inicial",
               userId: reactor.id,
               emoji,
               kind: useAscii ? "ascii" : "emoji",
@@ -170,7 +171,7 @@ async function main() {
       if (seed % 2 === 0) {
         const commenter = reactors[seed % reactors.length];
         await prisma.comment.create({
-          data: { responseId: response.id, userId: commenter.id, text: pick(COMMENTS, seed) },
+          data: { responseId: response.id, groupId: "grupo-inicial", userId: commenter.id, text: pick(COMMENTS, seed) },
         });
       }
     }

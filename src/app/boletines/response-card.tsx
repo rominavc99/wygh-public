@@ -47,10 +47,13 @@ type ResponseWithExtras = {
 
 export function ResponseCard({
   response,
+  groupId,
   currentUserId,
   mentionable,
 }: {
   response: ResponseWithExtras;
+  /** Grupo en el que se está viendo: reacciones y comentarios son de ese grupo. */
+  groupId: string;
   currentUserId: string;
   mentionable: { id: string; name: string }[];
 }) {
@@ -129,8 +132,14 @@ export function ResponseCard({
           </div>
         ) : null}
 
-        <ReactionBar target={{ type: "response", id: r.id }} reactions={summarizeReactions(r.reactions, currentUserId)} />
-        <CommentThread responseId={r.id} comments={comments} currentUserId={currentUserId} mentionable={mentionable} />
+        <ReactionBar target={{ type: "response", id: r.id, groupId }} reactions={summarizeReactions(r.reactions, currentUserId)} />
+        <CommentThread
+          responseId={r.id}
+          groupId={groupId}
+          comments={comments}
+          currentUserId={currentUserId}
+          mentionable={mentionable}
+        />
       </div>
     </li>
   );
