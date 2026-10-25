@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { Prisma } from "@/generated/prisma/client";
+import { isUniqueViolation } from "@/lib/prisma-errors";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth-guards";
 import { usernameSchema, birthdaySchema, greetingEmojiSchema } from "@/lib/user-schema";
@@ -38,11 +38,7 @@ export async function updateMyProfile(
       data: { username: username.data, birthday: birthday.data, greetingEmoji: greetingEmoji.data },
     });
   } catch (error) {
-    if (
-      error instanceof Prisma.PrismaClientKnownRequestError &&
-      error.code === "P2002" &&
-      ((error.meta as { target?: string[] } | undefined)?.target ?? []).includes("username")
-    ) {
+    if (isUniqueViolation(error, "username")) {
       return { status: "error", errors: { username: "Ya alguien más tiene ese nombre de usuario." } };
     }
     throw error;

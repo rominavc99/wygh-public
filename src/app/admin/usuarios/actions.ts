@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { Prisma } from "@/generated/prisma/client";
+import { isUniqueViolation } from "@/lib/prisma-errors";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/auth-guards";
 import { userSchema } from "@/lib/user-schema";
@@ -23,14 +23,7 @@ function fieldErrorsFromZod(error: import("zod").ZodError): Record<string, strin
   return fieldErrors;
 }
 
-function isUniqueConstraintError(error: unknown, field: string): boolean {
-  return (
-    error instanceof Prisma.PrismaClientKnownRequestError &&
-    error.code === "P2002" &&
-    Array.isArray((error.meta as { target?: string[] } | undefined)?.target) &&
-    ((error.meta as { target?: string[] }).target ?? []).includes(field)
-  );
-}
+const isUniqueConstraintError = isUniqueViolation;
 
 export async function createUser(
   _prevState: UserFormState,
