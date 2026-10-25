@@ -236,8 +236,11 @@ lo que además permite atrapar fallos de red.
 ## Misiones (`/misiones`, `src/lib/missions.ts`)
 
 Actividades pequeñas para alguien del grupo ("Consigue una foto de una
-comida que le guste mucho a {usuario}"). El catálogo (`Mission`) se
-administra en `/admin/misiones`; cada oferta es un `MissionAssignment`.
+comida que le guste mucho a {usuario}"). Cada oferta es un
+`MissionAssignment`. En `/admin/misiones` hay dos pestañas: Seguimiento
+(activas por persona, tablas por persona y por día, detalle con filtros
+de estado, persona y fechas, y quitar advertencias) y Catálogo
+(`Mission`).
 
 - Se pide **al azar** (persona y actividad sorpresa) o **para alguien**
   (se elige la persona, la actividad sigue al azar). "Cambiar actividad"

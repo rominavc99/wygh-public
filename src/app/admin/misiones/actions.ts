@@ -14,7 +14,7 @@ const missionSchema = z
   .refine((text) => text.includes("{usuario}"), "Incluye {usuario} donde va el nombre de la persona.");
 
 function fail(message: string): never {
-  redirect(`/admin/misiones?error=${encodeURIComponent(message)}`);
+  redirect(`/admin/misiones?vista=catalogo&error=${encodeURIComponent(message)}`);
 }
 
 function parseMission(formData: FormData) {
@@ -32,7 +32,7 @@ export async function createMission(formData: FormData) {
   await requireAdmin();
   await prisma.mission.create({ data: parseMission(formData) });
   revalidatePath("/admin/misiones");
-  redirect("/admin/misiones");
+  redirect("/admin/misiones?vista=catalogo");
 }
 
 export async function updateMission(formData: FormData) {
@@ -41,7 +41,7 @@ export async function updateMission(formData: FormData) {
   if (!id) return;
   await prisma.mission.update({ where: { id }, data: parseMission(formData) });
   revalidatePath("/admin/misiones");
-  redirect("/admin/misiones");
+  redirect("/admin/misiones?vista=catalogo");
 }
 
 export async function toggleMission(formData: FormData) {
