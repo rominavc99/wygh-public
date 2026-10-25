@@ -91,8 +91,12 @@ export default async function BoletinesPage({
     ...birthdayEditions.map((e) => ({ date: e.date, cumple: e.userId, celebrant: displayName(e.user) })),
   ].sort((a, b) => b.date.localeCompare(a.date) || Number(Boolean(a.cumple)) - Number(Boolean(b.cumple)));
   const hasLegacy = allEntries.some((e) => isLegacyDate(e.date));
-  // Sin ningún resumen todavía, se abre directo el archivo anterior.
-  const legacy = params.archivo === "anterior" || (params.date ? isLegacyDate(params.date) : !allEntries.some((e) => !isLegacyDate(e.date)));
+  // La pestaña elegida (?archivo=) manda. Sin elegir, y sin ningún boletín
+  // de resumen todavía, se abre directo el archivo anterior.
+  const legacy =
+    params.archivo === "anterior" ||
+    (params.archivo !== "resumenes" &&
+      (params.date ? isLegacyDate(params.date) : !allEntries.some((e) => !isLegacyDate(e.date))));
   const entries = allEntries.filter((e) => isLegacyDate(e.date) === legacy);
 
   const selected = params.date || params.cumple ? null : entries[0] ?? null;
@@ -413,7 +417,7 @@ function BoletinesShell({
         {hasLegacy && groupId ? (
           <nav className="mb-4 grid grid-cols-2 overflow-hidden rounded-xl border-[2.5px] border-[var(--nb-line)] bg-white shadow-[3px_3px_0_0_var(--nb-line)]" aria-label="Tipo de boletín">
             <Link
-              href={`/boletines?grupo=${groupId}`}
+              href={`/boletines?grupo=${groupId}&archivo=resumenes`}
               aria-current={!legacy ? "page" : undefined}
               className={`min-h-11 px-2 py-2.5 text-center text-sm font-bold no-underline ${!legacy ? "bg-chrome-3 text-white" : "text-ink-soft"}`}
             >
@@ -434,7 +438,7 @@ function BoletinesShell({
             <div className="win-body">
               <p className="text-sm text-ink-soft">
                 {groupId && !legacy && hasLegacy
-                  ? "Todavía no sale el primer resumen del día. Mientras, puedes ver el archivo anterior. 🦆"
+                  ? "Todavía no sale el primer boletín de Resumen del día: llega a la hora de envío del grupo (12:00), con los resúmenes del día anterior. Mientras, puedes ver el archivo en la pestaña \"Al llegar a casa (anterior)\". 🦆"
                   : groupId
                   ? "Todavía no se ha enviado ningún boletín en este grupo. 🦆"
                   : "Todavía no estás en ningún grupo, así que no hay boletines que mostrar. 🦆"}
