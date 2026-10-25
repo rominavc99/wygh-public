@@ -7,6 +7,7 @@ import { buildWeeklyReport } from "@/lib/weekly-report";
 import { sendNudgeTo, sendWeeklyReportTo } from "@/lib/send-engagement";
 import { streakEmail, wrappedEmail } from "@/lib/extras-email";
 import { anniversaryParts, buildWrapped, deliverNow, onThisDayParts, STREAK_MILESTONES, welcomeParts } from "@/lib/send-extras";
+import { missedManualJobs } from "@/lib/missed-response";
 
 /**
  * "Enviar ahora" de Ajustes: manda un correo en el momento, a quienes les
@@ -14,7 +15,7 @@ import { anniversaryParts, buildWrapped, deliverNow, onThisDayParts, STREAK_MILE
  * EngagementEmail — así la programación sigue exactamente igual.
  */
 
-export const MANUAL_EMAIL_KINDS = ["weekly", "nudge", "streak", "on-this-day", "anniversary", "wrapped", "welcome"] as const;
+export const MANUAL_EMAIL_KINDS = ["weekly", "nudge", "missed", "streak", "on-this-day", "anniversary", "wrapped", "welcome"] as const;
 export type ManualEmailKind = (typeof MANUAL_EMAIL_KINDS)[number];
 
 type Job = { name: string; send: () => Promise<boolean> };
@@ -44,6 +45,9 @@ async function jobsFor(kind: ManualEmailKind, today: string, userId?: string): P
         .filter((u) => u.missedStreak >= settings.inactivityNudgeDays)
         .map((u) => ({ name: `${u.name} (${u.missedStreak} días)`, send: () => sendNudgeTo(u) }));
     }
+    case "missed":
+      // Quien no mandó su resumen para el último boletín; se anota (no se le vuelve a mandar).
+      return missedManualJobs();
     case "streak": {
       // A mano no se espera al número exacto: le llega a quien va en racha
       // de al menos la primera meta, con los días que lleva.

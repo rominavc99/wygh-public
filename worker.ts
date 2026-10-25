@@ -10,6 +10,7 @@ import { sendWeeklySummary, sendInactivityNudges } from "@/lib/send-engagement";
 import { sendDailyExtras } from "@/lib/send-extras";
 import { pruneNotifications } from "@/lib/notifications";
 import { expireMissions } from "@/lib/missions";
+import { sendMissedResponseEmails } from "@/lib/missed-response";
 import { addDaysLocal, todayLocalDate, nowLocalTime, subtractMinutesFromTime } from "@/lib/date";
 
 // Cada grupo tiene su propia hora de envío (y sus recordatorios 2 h, 1 h y 30 min
@@ -146,6 +147,12 @@ async function checkExpiredMissions() {
   if (failed) console.log(`[worker] ${failed} misión(es) sin cumplir; se mandaron las advertencias.`);
 }
 
+// Correo (con poema) a quien no mandó su resumen, unos minutos después del boletín.
+async function checkMissedResponseEmails() {
+  const { sent, failed } = await sendMissedResponseEmails();
+  if (sent || failed) console.log(`[worker] Correos a quien no mandó su resumen: ${sent} enviados, ${failed} fallidos.`);
+}
+
 // Notificaciones de más de un año: una vez al día, de madrugada.
 cron.schedule("30 3 * * *", () => {
   pruneNotifications()
@@ -179,6 +186,9 @@ cron.schedule("* * * * *", () => {
   });
   checkExpiredMissions().catch((error) => {
     console.error("[worker] Error al revisar misiones vencidas:", error);
+  });
+  checkMissedResponseEmails().catch((error) => {
+    console.error("[worker] Error al mandar correos a quien no mandó su resumen:", error);
   });
 });
 

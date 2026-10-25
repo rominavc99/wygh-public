@@ -518,8 +518,8 @@ Los errores de validación son `400` con `fields`, como en el resto de la API.
 
 | Método | Ruta | Qué hace |
 |---|---|---|
-| GET / PATCH | `/admin/settings` | Ajustes generales: `newsletterName`, `tagline`, `autoSend`, `lockResponsesAfterSend`, `fromName`, `fromEmail`, resumen semanal (`weeklySummaryEnabled`, `weeklySummaryDay` 0–6, `weeklySummaryTime`), correos de inactividad (`inactivityNudge*`), correos especiales (`extrasEmailTime`, `streakEmailEnabled`, `onThisDayEnabled`, `anniversaryEnabled`, `wrappedEnabled`, `welcomeEmailEnabled`). |
-| POST | `/admin/emails/<kind>` | "Enviar ahora": `weekly`, `nudge`, `streak`, `on-this-day`, `anniversary`, `wrapped` o `welcome` (este con `{ userId }`). Responde `{ message }`. |
+| GET / PATCH | `/admin/settings` | Ajustes generales: `newsletterName`, `tagline`, `autoSend`, `lockResponsesAfterSend`, `fromName`, `fromEmail`, resumen semanal (`weeklySummaryEnabled`, `weeklySummaryDay` 0–6, `weeklySummaryTime`), correos de inactividad (`inactivityNudge*`), correos especiales (`extrasEmailTime`, `streakEmailEnabled`, `onThisDayEnabled`, `anniversaryEnabled`, `wrappedEnabled`, `welcomeEmailEnabled`), correo a quien no mandó su resumen (`missedEmailEnabled`, `missedEmailDelayMinutes`). |
+| POST | `/admin/emails/<kind>` | "Enviar ahora": `weekly`, `nudge`, `missed` (a quien no mandó su resumen para el último boletín), `streak`, `on-this-day`, `anniversary`, `wrapped` o `welcome` (este con `{ userId }`). Responde `{ message }`. |
 | GET | `/admin/extraordinary` | Si la página está habilitada y los permisos dados. |
 | PATCH | `/admin/extraordinary` | `{ enabled }` — al habilitarla avisa a quien ya tenía permiso. |
 | POST | `/admin/extraordinary/grants` | `{ userId, date }` — permiso de un solo uso para un día pasado. |

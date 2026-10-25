@@ -33,6 +33,8 @@ const settingsSchema = z
     anniversaryEnabled: z.boolean(),
     wrappedEnabled: z.boolean(),
     welcomeEmailEnabled: z.boolean(),
+    missedEmailEnabled: z.boolean(),
+    missedEmailDelayMinutes: z.coerce.number().int("Escribe un número entero.").min(0, "Mínimo 0.").max(240, "Máximo 240 minutos."),
   });
 
 export type SettingsFormState =
@@ -67,6 +69,8 @@ export async function updateSettings(
     anniversaryEnabled: formData.get("anniversaryEnabled") === "on",
     wrappedEnabled: formData.get("wrappedEnabled") === "on",
     welcomeEmailEnabled: formData.get("welcomeEmailEnabled") === "on",
+    missedEmailEnabled: formData.get("missedEmailEnabled") === "on",
+    missedEmailDelayMinutes: formData.get("missedEmailDelayMinutes"),
   });
 
   if (!parsed.success) {

@@ -9,6 +9,7 @@ import { buildWeeklyReport } from "@/lib/weekly-report";
 import { weeklyReportEmailHtml } from "@/lib/weekly-report-email";
 import { streakEmail, wrappedEmail } from "@/lib/extras-email";
 import { anniversaryParts, buildWrapped, onThisDayParts, welcomeParts } from "@/lib/send-extras";
+import { missedResponsePreview } from "@/lib/missed-response";
 
 function html(body: string): Response {
   return new Response(body, { headers: { "Content-Type": "text/html; charset=utf-8" } });
@@ -17,8 +18,8 @@ function html(body: string): Response {
 /**
  * Vista previa de los correos de participación y especiales tal como le
  * llegarían al admin que la abre, con datos reales cuando los hay.
- * ?correo=resumen | resumen-admin | inactividad | racha | hace-un-ano |
- * aniversario | anual | bienvenida
+ * ?correo=resumen | resumen-admin | inactividad | sin-resumen | racha |
+ * hace-un-ano | aniversario | anual | bienvenida
  */
 export async function GET(request: NextRequest) {
   const admin = await requireAdmin();
@@ -40,6 +41,8 @@ export async function GET(request: NextRequest) {
         })
       );
     }
+    case "sin-resumen":
+      return html(await missedResponsePreview(name));
     case "racha":
       return html(streakEmail({ name, days: 30, siteUrl }).html);
     case "hace-un-ano": {

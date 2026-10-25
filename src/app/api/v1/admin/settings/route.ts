@@ -24,6 +24,8 @@ const KEYS = [
   "anniversaryEnabled",
   "wrappedEnabled",
   "welcomeEmailEnabled",
+  "missedEmailEnabled",
+  "missedEmailDelayMinutes",
 ] as const;
 
 async function current() {

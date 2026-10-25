@@ -10,7 +10,7 @@ import { ExtraordinarySection } from "./extraordinary-section";
 
 export default async function AjustesPage() {
   const today = todayLocalDate();
-  const [settings, users, weekly, nudge, streak, onThisDay, anniversary, wrapped, grants] = await Promise.all([
+  const [settings, users, weekly, nudge, missed, streak, onThisDay, anniversary, wrapped, grants] = await Promise.all([
     prisma.settings.upsert({
       where: { id: 1 },
       create: { id: 1 },
@@ -19,6 +19,7 @@ export default async function AjustesPage() {
     prisma.user.findMany({ where: { active: true }, orderBy: { name: "asc" } }),
     manualRecipients("weekly", today),
     manualRecipients("nudge", today),
+    manualRecipients("missed", today),
     manualRecipients("streak", today),
     manualRecipients("on-this-day", today),
     manualRecipients("anniversary", today),
@@ -40,7 +41,7 @@ export default async function AjustesPage() {
       <SettingsForm
         settings={settings}
         users={userOptions}
-        sendNow={{ weekly, nudge, streak, "on-this-day": onThisDay, anniversary, wrapped }}
+        sendNow={{ weekly, nudge, missed, streak, "on-this-day": onThisDay, anniversary, wrapped }}
       />
       <ExtraordinarySection
         enabled={settings.extraordinaryResponsesEnabled}

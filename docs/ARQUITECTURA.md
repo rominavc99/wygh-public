@@ -310,6 +310,7 @@ Proceso PM2 aparte que cada minuto revisa:
 |---|---|---|---|
 | Boletín diario de cada grupo | `Group.sendTime` de cada grupo no suspendido (si `Settings.autoSend`) | `sendDailyNewsletter(groupId, date)` | `NewsletterSend(groupId, date)` |
 | Recordatorios a quien no ha respondido | 2 h, 1 h y 30 min antes del `sendTime` de cada grupo (si su `reminderEnabled`); solo a sus miembros sin respuesta para ese boletín | `sendReminderIfNeeded(groupId, date, minutesBefore)` | `ReminderSend(groupId, date, minutesBefore)` |
+| Correo a quien no mandó su resumen (texto dramático + poema) | `missedEmailDelayMinutes` (5) después de que sale cada boletín, si `missedEmailEnabled`; se pone al día si el worker estuvo apagado (boletines de las últimas 12 h) | `sendMissedResponseEmails()` (`src/lib/missed-response.ts`) | `MissedResponseEmail(userId, date)`: uno por persona y boletín |
 | Boletín de cumpleaños (una edición por grupo de quien cumple) | `Settings.birthdaySendTime` (si `birthdayEnabled`) | `sendBirthdayNewsletter(userId, groupId, date)` | `BirthdayNewsletter(userId, groupId, date)` |
 | Comunicaciones programadas | cuando llega su `scheduledAt` | `sendCommunicationNow()` + aviso a admins | `Communication.status` |
 | Resumen semanal de participación (uno por grupo, a sus miembros) | `weeklySummaryDay` a las `weeklySummaryTime` (si `weeklySummaryEnabled`) | `sendWeeklySummary()` | `WeeklySummarySend(groupId, weekStart)` |

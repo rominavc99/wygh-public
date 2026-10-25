@@ -474,6 +474,11 @@ erDiagram
 
 ### Otros
 
+- **`Poem`**: los poemas tristes (dominio público, con autor y si es
+  fragmento) del correo a quien no mandó su resumen; 50 iniciales en la
+  migración. **`MissedResponseEmail`**: ese correo, uno por persona y
+  boletín (`@@unique([userId, date])`), con qué texto y qué poema salió para
+  no repetirlos.
 - **`PushDevice`**: teléfono con la app instalada (token de Expo o FCM),
   para mandarle push. Lo registra la app (`POST /api/v1/me/devices`); un
   token que el proveedor da por inválido se borra solo.

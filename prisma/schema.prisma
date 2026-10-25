@@ -71,6 +71,7 @@ model User {
   missionsForMe    MissionAssignment[] @relation("MissionTarget")
   missionReactions MissionReaction[]
   pushDevices      PushDevice[]
+  missedEmails     MissedResponseEmail[]
 }
 
 /// Grupo de amigos con su propio boletín (ver src/lib/groups.ts). Solo los
@@ -463,6 +464,10 @@ model Settings {
   onThisDayEnabled    Boolean @default(true)
   anniversaryEnabled  Boolean @default(true)
   wrappedEnabled      Boolean @default(true)
+  // Correo dramático (con un poema) a quien no mandó su resumen, unos
+  // minutos después de que sale el boletín.
+  missedEmailEnabled      Boolean @default(true)
+  missedEmailDelayMinutes Int     @default(5)
   welcomeEmailEnabled Boolean @default(true)
 
   // Interruptor general de /respuesta-extraordinaria (ver ExtraordinaryGrant).
@@ -749,6 +754,42 @@ model PushDevice {
   lastSeenAt DateTime @default(now())
 
   @@index([userId])
+}
+
+/// Poemas tristes (de dominio público, con su autor) que acompañan el
+/// correo a quien no mandó su resumen (ver src/lib/missed-response.ts).
+model Poem {
+  id        String   @id @default(cuid())
+  title     String
+  author    String
+  /// Versos separados por "\n"; estrofas por una línea vacía.
+  text      String
+  /// Es un extracto del poema (se dice "fragmento" en el crédito).
+  fragment  Boolean  @default(false)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  sent MissedResponseEmail[]
+}
+
+/// El correo dramático a quien no mandó su resumen para el boletín de
+/// `date`: uno por persona y boletín (aunque esté en varios grupos).
+model MissedResponseEmail {
+  id      String   @id @default(cuid())
+  userId  String
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date    String
+  groupId String
+  poemId  String?
+  poem    Poem?    @relation(fields: [poemId], references: [id], onDelete: SetNull)
+  /// Cuál de los textos (MISSED_VARIANTS) salió.
+  variant Int
+  /// false si el correo no salió (no se reintenta, para no insistir cada minuto).
+  sent    Boolean  @default(true)
+  sentAt  DateTime @default(now())
+
+  @@unique([userId, date])
+  @@index([userId, sentAt])
 }
 
 model Notification {

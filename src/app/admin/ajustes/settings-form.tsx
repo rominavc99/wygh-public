@@ -27,6 +27,8 @@ type Settings = {
   anniversaryEnabled: boolean;
   wrappedEnabled: boolean;
   welcomeEmailEnabled: boolean;
+  missedEmailEnabled: boolean;
+  missedEmailDelayMinutes: number;
 };
 
 const EXTRA_EMAILS = [
@@ -39,7 +41,7 @@ const EXTRA_EMAILS = [
 
 const initialState: SettingsFormState = { status: "idle" };
 
-type SendNowRecipients = Record<"weekly" | "nudge" | "streak" | "on-this-day" | "anniversary" | "wrapped", string[]>;
+type SendNowRecipients = Record<"weekly" | "nudge" | "missed" | "streak" | "on-this-day" | "anniversary" | "wrapped", string[]>;
 
 export function SettingsForm({
   settings,
@@ -213,6 +215,44 @@ export function SettingsForm({
         </Field>
 
         <SendNowButton kind="nudge" label="Correo a quien no responde" recipients={sendNow.nudge} />
+      </div>
+
+      <div className="mt-2 flex flex-col gap-4 rounded-xl border border-panel-edge bg-panel-2 p-4">
+        <div>
+          <h3 className="text-base font-bold text-ink">💔 Correo a quien no mandó su resumen</h3>
+          <p className="text-xs text-ink-faint">
+            Un texto muy dramático (hay 6, salen al azar) y un poema triste de un autor clásico. Le llega a quien no
+            mandó su resumen, unos minutos después de que sale el boletín; una vez por boletín aunque esté en varios
+            grupos.{" "}
+            <a href="/admin/estadisticas/vista-previa?correo=sin-resumen" target="_blank" className="underline">
+              Vista previa
+            </a>
+          </p>
+        </div>
+
+        <label className="flex items-center gap-2 text-sm font-bold text-ink">
+          <input
+            type="checkbox"
+            name="missedEmailEnabled"
+            defaultChecked={settings.missedEmailEnabled}
+            className="h-4 w-4 accent-[var(--accent-pink)]"
+          />
+          Mandar el correo a quien no mandó su resumen
+        </label>
+
+        <Field label="Minutos después del boletín" error={fieldErrors.missedEmailDelayMinutes}>
+          <input
+            name="missedEmailDelayMinutes"
+            type="number"
+            min={0}
+            max={240}
+            defaultValue={settings.missedEmailDelayMinutes}
+            className="xp-input w-28"
+            required
+          />
+        </Field>
+
+        <SendNowButton kind="missed" label="Correo a quien no mandó su resumen" recipients={sendNow.missed} />
       </div>
 
       <div className="mt-2 flex flex-col gap-4 rounded-xl border border-panel-edge bg-panel-2 p-4">
