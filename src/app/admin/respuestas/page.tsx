@@ -1,5 +1,7 @@
 import { prisma } from "@/lib/prisma";
-import { todayLocalDate, formatLocalDate } from "@/lib/date";
+import Link from "next/link";
+import { addDaysLocal, formatLocalDate } from "@/lib/date";
+import { pendingNewsletterDate } from "@/lib/groups";
 import { avatarGradient } from "@/lib/avatar";
 import { displayName } from "@/lib/display-name";
 
@@ -9,7 +11,14 @@ export default async function RespuestasPage({
   searchParams: Promise<{ date?: string }>;
 }) {
   const params = await searchParams;
-  const date = params.date || todayLocalDate();
+  // Por defecto, el boletín que todavía no sale: ahí están las respuestas
+  // que se están mandando ahorita (un resumen del día se guarda con la
+  // fecha del boletín en el que sale, no con la del día del que habla).
+  const [pending, lastSend] = await Promise.all([
+    pendingNewsletterDate(),
+    prisma.newsletterSend.findFirst({ orderBy: { date: "desc" }, select: { date: true } }),
+  ]);
+  const date = params.date || pending;
 
   const [responses, activeUsers] = await Promise.all([
     prisma.response.findMany({
@@ -28,7 +37,24 @@ export default async function RespuestasPage({
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h2 className="text-xl font-bold text-ink">🗂️ Respuestas</h2>
-          <p className="text-sm capitalize text-ink-soft">Boletín del {formatLocalDate(date)}</p>
+          <p className="text-sm text-ink-soft">
+            Boletín del {formatLocalDate(date)}
+            {date === pending ? " (todavía no sale)" : ""}
+            {responses.some((r) => r.format === "DAY") ? ` · resúmenes del ${formatLocalDate(addDaysLocal(date, -1))}` : ""}
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Link href={`/admin/respuestas?date=${pending}`} className={`chip ${date === pending ? "chip-pink" : "chip-neutral"} no-underline`}>
+              Próximo boletín
+            </Link>
+            {lastSend && lastSend.date !== pending ? (
+              <Link
+                href={`/admin/respuestas?date=${lastSend.date}`}
+                className={`chip ${date === lastSend.date ? "chip-pink" : "chip-neutral"} no-underline`}
+              >
+                Último enviado
+              </Link>
+            ) : null}
+          </div>
         </div>
         <form className="flex items-end gap-2">
           <div className="flex flex-col gap-1">

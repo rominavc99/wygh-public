@@ -6,6 +6,7 @@ import { fromAddress, sendOne } from "@/lib/send-engagement";
 import { recordNotification } from "@/lib/notifications";
 import { groupInviteEmail } from "@/lib/group-email";
 import { addDaysLocal, nowLocalTime, todayLocalDate } from "@/lib/date";
+import type { Prisma } from "@/generated/prisma/client";
 
 // Grupos (ver el modelo Group en prisma/schema.prisma). Cada grupo tiene su
 // propio boletín y está aislado de los demás; una persona puede estar en
@@ -138,10 +139,19 @@ export async function sendGroupInvites(
  * que habla de ayer; si no, el de mañana, que habla de hoy.
  */
 export async function openResponseDate(userId: string): Promise<string> {
+  return pendingNewsletterDate({ members: { some: { userId } } });
+}
+
+/**
+ * El próximo boletín por salir entre los grupos activos que cumplen
+ * `where` (todos, sin filtro): hoy si alguno tiene pendiente el de hoy, si
+ * no mañana. Es la fecha con la que se guardan las respuestas en curso.
+ */
+export async function pendingNewsletterDate(where: Prisma.GroupWhereInput = {}): Promise<string> {
   const today = todayLocalDate();
   const now = nowLocalTime();
   const groups = await prisma.group.findMany({
-    where: { suspended: false, members: { some: { userId } } },
+    where: { suspended: false, ...where },
     select: { sendTime: true, sends: { where: { date: today }, select: { id: true } } },
   });
   const pendingToday = groups.some((g) => g.sends.length === 0 && now < g.sendTime);
