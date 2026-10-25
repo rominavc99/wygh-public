@@ -280,6 +280,28 @@ de estado, persona y fechas, y quitar advertencias) y Catálogo
   común cuyo boletín ya salió (`src/lib/profile.ts`). `/mis-respuestas`
   redirige aquí.
 
+## API para la app móvil (`/api/v1`)
+
+Route handlers en `src/app/api/v1/**/route.ts`, documentados para quien
+haga la app en [`API.md`](./API.md). Lo común vive en `src/lib/api/`:
+`http.ts` (respuestas y errores JSON, token Bearer, límites), `dto.ts` (cómo
+sale cada cosa) y el resto. El token es una fila de `Session`, igual que una
+sesión web. La lógica de negocio es la misma que la de la web: las Server
+Actions y la API llaman a las mismas funciones (`submitDailyResponse`,
+`src/lib/interactions.ts`, `src/lib/missions.ts`,
+`submitExtraordinaryResponse`, `newsletterArchive`, `profileVisibility`).
+Usar la API cuenta como visita (`markSeen`), y las fotos aceptan el token
+además de la cookie.
+
+- **Admin** (`/api/v1/admin/*`): reutiliza las Server Actions del panel tal
+  cual. `requireUser()` (`src/lib/auth-guards.ts`) acepta el token además
+  de la cookie, y `src/lib/api/admin.ts` arma el FormData y traduce lo que
+  devuelven a HTTP. Donde la acción hace `redirect()`, la lógica está en
+  una librería compartida (p. ej. `src/lib/mission-catalog.ts`).
+- **Push** (`src/lib/push.ts`): cada `recordNotification()` también sale
+  como push a los `PushDevice` de la persona, por Expo o por FCM. FCM pide
+  `FCM_SERVICE_ACCOUNT_FILE` en `.env`; `EXPO_ACCESS_TOKEN` es opcional.
+
 ## Envíos programados (`worker.ts`)
 
 Proceso PM2 aparte que cada minuto revisa:

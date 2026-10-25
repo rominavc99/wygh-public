@@ -3,6 +3,7 @@ import path from "node:path";
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { diskPathFor } from "@/lib/response-photos";
+import { optionalApiUser } from "@/lib/api/http";
 
 // Las fotos subidas por usuarios (ver src/lib/response-photos.ts) NO viven
 // dentro de public/ — a propósito: un archivo bajo public/ SIEMPRE se
@@ -23,9 +24,10 @@ const MIME_TYPES: Record<string, string> = {
 
 export const dynamic = "force-dynamic";
 
-export async function GET(_request: Request, { params }: { params: Promise<{ filename: string }> }) {
+export async function GET(request: Request, { params }: { params: Promise<{ filename: string }> }) {
+  // Sesión web (cookie) o token de la app (Authorization: Bearer, ver src/lib/api/http.ts).
   const session = await auth();
-  if (!session?.user) {
+  if (!session?.user && !(await optionalApiUser(request))) {
     return new NextResponse(null, { status: 401 });
   }
 

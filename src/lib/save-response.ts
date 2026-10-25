@@ -9,7 +9,7 @@ import {
   upsertHeroPhotoForResponse,
 } from "@/lib/response-photos";
 import { upsertPhraseForResponse, deletePhraseForResponse } from "@/lib/response-phrases";
-import { selectedGroupIds, setResponseGroups } from "@/lib/groups";
+import { openResponseDate, responseGroupOptions, responseLock, selectedGroupIds, setResponseGroups } from "@/lib/groups";
 
 export type SaveResponseState =
   | { status: "idle" }
@@ -103,4 +103,35 @@ export async function writeResponse(
   if (missions) await missions.apply(saved.id);
 
   return { status: "success" };
+}
+
+/**
+ * Guarda el resumen del día de `userId` en el boletín abierto (ver
+ * openResponseDate), con sus misiones, si todavía se puede. Lo usan el
+ * formulario de / (saveResponse) y la API (PUT /api/v1/today/response); la
+ * sesión y el límite de intentos los revisa cada uno.
+ */
+export async function submitDailyResponse(userId: string, formData: FormData): Promise<SaveResponseState> {
+  const date = await openResponseDate(userId);
+
+  const [existing, settings] = await Promise.all([
+    prisma.response.findUnique({ where: { userId_date: { userId, date } } }),
+    prisma.settings.upsert({ where: { id: 1 }, create: { id: 1 }, update: {} }),
+  ]);
+  const options = await responseGroupOptions(userId, date, existing?.id ?? null);
+  if (options.length === 0) {
+    return { status: "error", message: "Todavía no estás en ningún grupo, así que no hay a dónde mandar tu resumen." };
+  }
+
+  const { locked, allowedGroupIds } = responseLock(options, Boolean(existing), settings.lockResponsesAfterSend);
+  if (locked) {
+    return {
+      status: "error",
+      message: existing
+        ? "El boletín ya se envió, así que tu resumen ya no se puede editar."
+        : "El boletín ya se envió. Ya no puedes mandar este resumen.",
+    };
+  }
+
+  return writeResponse(userId, date, formData, existing, allowedGroupIds, true);
 }

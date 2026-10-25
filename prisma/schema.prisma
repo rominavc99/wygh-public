@@ -70,6 +70,7 @@ model User {
   missions         MissionAssignment[] @relation("MissionAssignee")
   missionsForMe    MissionAssignment[] @relation("MissionTarget")
   missionReactions MissionReaction[]
+  pushDevices      PushDevice[]
 }
 
 /// Grupo de amigos con su propio boletín (ver src/lib/groups.ts). Solo los
@@ -732,6 +733,24 @@ model VerificationToken {
 /// Copia en el sitio de cada correo que se le mandó a alguien (ver
 /// src/lib/notifications.ts), para verlo en /notificaciones. html es el
 /// correo tal cual; si está vacío, abrir la notificación lleva a url.
+/// Teléfono con la app instalada, para mandarle push (ver src/lib/push.ts).
+/// Lo registra la app con POST /api/v1/me/devices; un token que el
+/// proveedor reporta como inválido se borra solo.
+model PushDevice {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token      String   @unique
+  /// "expo" (Expo Push) o "fcm" (Firebase Cloud Messaging).
+  provider   String
+  /// "ios" o "android".
+  platform   String
+  createdAt  DateTime @default(now())
+  lastSeenAt DateTime @default(now())
+
+  @@index([userId])
+}
+
 model Notification {
   id        String    @id @default(cuid())
   userId    String

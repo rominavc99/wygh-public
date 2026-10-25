@@ -73,3 +73,15 @@ export async function verifyLoginCode(
 export function allowCodeCallback(email: string): boolean {
   return rateLimit(`login:code-callback:${email.trim().toLowerCase()}`, 10, LOGIN_CODE_MAX_AGE_SECONDS * 1000);
 }
+
+/**
+ * Para la app (POST /api/v1/auth/token): revisa el código igual que
+ * verifyLoginCode y, si es bueno, lo consume (lo borra, como hace Auth.js en
+ * su callback) para que no sirva dos veces.
+ */
+export async function consumeLoginCode(email: string, code: string): Promise<"ok" | "invalid" | "locked"> {
+  const result = await verifyLoginCode(email, code);
+  if (result !== "ok") return result;
+  const { count } = await prisma.verificationToken.deleteMany({ where: { identifier: email, token: hashLoginCode(code) } });
+  return count > 0 ? "ok" : "invalid";
+}

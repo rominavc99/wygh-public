@@ -474,6 +474,12 @@ erDiagram
 
 ### Otros
 
+- **`PushDevice`**: teléfono con la app instalada (token de Expo o FCM),
+  para mandarle push. Lo registra la app (`POST /api/v1/me/devices`); un
+  token que el proveedor da por inválido se borra solo.
+- **Tokens de la app**: son filas normales de `Session`, igual que una
+  sesión web (ver `docs/API.md`).
+
 - **`Settings` es un singleton**: siempre `id = 1`, se crea con
   `upsert` la primera vez que hace falta, sin seed obligatorio.
 - **`Account` / `Session` / `VerificationToken`** son los modelos estándar

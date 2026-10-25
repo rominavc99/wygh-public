@@ -1,5 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { getSiteUrl } from "@/lib/site-url";
+import { sendPushToUser } from "@/lib/push";
+import { notificationTarget } from "@/lib/api/notifications";
 
 /**
  * Notificaciones del sitio (/notificaciones): una copia de cada correo que
@@ -44,9 +46,23 @@ export async function recordNotification({
   url?: string;
 }): Promise<void> {
   try {
-    await prisma.notification.create({
+    const notification = await prisma.notification.create({
       data: { userId, kind, title, preview: previewFrom(text), html, url: internalUrl(url) },
     });
+    // También como push a la app (si tiene teléfonos registrados). Sin await:
+    // el push no debe retrasar lo que mandó el correo.
+    void unreadNotificationCount(userId).then((badge) =>
+      sendPushToUser(userId, {
+        title,
+        body: notification.preview,
+        badge,
+        data: {
+          notificationId: notification.id,
+          kind,
+          target: JSON.stringify(notificationTarget(notification.url, Boolean(html))),
+        },
+      })
+    );
   } catch (error) {
     // Best-effort: nunca debe tumbar un envío de correo que sí salió.
     console.error("[notifications] No se pudo guardar la notificación:", error);
