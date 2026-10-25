@@ -12,11 +12,14 @@ import { getSiteUrl } from "@/lib/site-url";
 export function reminderEmailHtml({
   name,
   sendTime,
+  remaining,
   newsletterName,
   formUrl,
 }: {
   name: string;
   sendTime: string;
+  /** "2 horas", "1 hora", "30 minutos": cuánto falta para el envío. */
+  remaining: string;
   newsletterName: string;
   formUrl: string;
 }): string {
@@ -44,11 +47,11 @@ export function reminderEmailHtml({
           <tr>
             <td style="padding:28px 26px 30px;">
               <p class="text-ink" style="margin:0 0 14px;color:${l.ink};font-size:14px;line-height:1.6;">Hola ${safeName},</p>
-              <p class="text-ink" style="margin:0 0 18px;color:${l.ink};font-size:15px;line-height:1.6;">El boletín "${safeTitle}" de hoy está por cerrar a la <strong>${safeTime}</strong> y aún no recibimos tu respuesta. Todos quieren saber qué vas a hacer hoy, responde antes de que se acabe el tiempo.</p>
+              <p class="text-ink" style="margin:0 0 18px;color:${l.ink};font-size:15px;line-height:1.6;">Faltan <strong>${escapeHtml(remaining)}</strong> para que salga el boletín "${safeTitle}" (a las <strong>${safeTime}</strong>) y aún no recibimos tu resumen del día. Todos quieren saber cómo te fue: mándalo antes de que se acabe el tiempo.</p>
               <table role="presentation" cellpadding="0" cellspacing="0">
                 <tr>
                   <td class="bg-btn" style="border-radius:18px;${flatBg(l.btn)}">
-                    <a href="${formUrl}" class="text-btn" style="display:inline-block;padding:12px 26px;color:${l.btnText};text-decoration:none;font-weight:700;font-family:${FONT_DISPLAY};font-size:14px;border-radius:18px;">Responder ahora →</a>
+                    <a href="${formUrl}" class="text-btn" style="display:inline-block;padding:12px 26px;color:${l.btnText};text-decoration:none;font-weight:700;font-family:${FONT_DISPLAY};font-size:14px;border-radius:18px;">Mandar mi resumen →</a>
                   </td>
                 </tr>
               </table>
@@ -71,13 +74,15 @@ export function reminderEmailHtml({
 export function reminderEmailText({
   name,
   sendTime,
+  remaining,
   newsletterName,
   formUrl,
 }: {
   name: string;
   sendTime: string;
+  remaining: string;
   newsletterName: string;
   formUrl: string;
 }): string {
-  return `Hola ${name},\n\nEl boletín "${newsletterName}" de hoy está por cerrar a la ${sendTime} y aún no recibimos tu respuesta. Todos quieren saber qué vas a hacer hoy, responde antes de que se acabe el tiempo.\n\n${formUrl}\n\nSi ya respondiste, ignora este correo.`;
+  return `Hola ${name},\n\nFaltan ${remaining} para que salga el boletín "${newsletterName}" (a las ${sendTime}) y aún no recibimos tu resumen del día. Todos quieren saber cómo te fue: mándalo antes de que se acabe el tiempo.\n\n${formUrl}\n\nSi ya respondiste, ignora este correo.`;
 }

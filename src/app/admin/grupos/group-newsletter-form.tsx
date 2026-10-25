@@ -56,7 +56,7 @@ export function GroupNewsletterForm({
           defaultChecked={group.reminderEnabled}
           className="h-4 w-4 accent-[var(--accent-pink)]"
         />
-        ⏰ Recordar a quien no haya respondido (1 hora antes del envío)
+        ⏰ Recordar a quien no haya respondido (2 horas, 1 hora y 30 minutos antes del envío)
       </label>
 
       <div className="flex flex-col gap-4 rounded-xl border border-panel-edge bg-panel p-4">

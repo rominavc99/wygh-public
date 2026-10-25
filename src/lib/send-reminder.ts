@@ -4,6 +4,14 @@ import { reminderEmailHtml, reminderEmailText } from "@/lib/reminder-email";
 import { getSiteUrl } from "@/lib/site-url";
 import { recordNotification } from "@/lib/notifications";
 
+/** Cuántos minutos antes del envío sale cada recordatorio. */
+export const REMINDER_OFFSETS = [120, 60, 30] as const;
+
+function remainingLabel(minutes: number): string {
+  if (minutes % 60 === 0) return minutes === 60 ? "1 hora" : `${minutes / 60} horas`;
+  return `${minutes} minutos`;
+}
+
 export type ReminderResult = {
   status: "sent" | "skipped_disabled" | "skipped_none_pending" | "already_sent";
   recipientCount: number;
@@ -12,11 +20,11 @@ export type ReminderResult = {
 /**
  * Manda el recordatorio del día indicado a los miembros activos del grupo
  * que todavía no hayan respondido (a ningún grupo: quien ya respondió y no
- * eligió este grupo lo hizo a propósito). Idempotente por grupo y fecha
- * (una vez al día, como NewsletterSend).
+ * eligió este grupo lo hizo a propósito). Idempotente por grupo, fecha y
+ * `minutesBefore` (cada uno de REMINDER_OFFSETS sale una vez).
  */
-export async function sendReminderIfNeeded(groupId: string, date: string): Promise<ReminderResult> {
-  const where = { groupId_date: { groupId, date } };
+export async function sendReminderIfNeeded(groupId: string, date: string, minutesBefore: number): Promise<ReminderResult> {
+  const where = { groupId_date_minutesBefore: { groupId, date, minutesBefore } };
   const existing = await prisma.reminderSend.findUnique({ where });
   if (existing) {
     return { status: "already_sent", recipientCount: existing.recipientCount };
@@ -38,7 +46,7 @@ export async function sendReminderIfNeeded(groupId: string, date: string): Promi
   const pending = activeUsers.filter((u) => !respondedIds.has(u.id));
 
   if (pending.length === 0) {
-    await prisma.reminderSend.create({ data: { groupId, date, recipientCount: 0 } });
+    await prisma.reminderSend.create({ data: { groupId, date, minutesBefore, recipientCount: 0 } });
     return { status: "skipped_none_pending", recipientCount: 0 };
   }
 
@@ -48,8 +56,12 @@ export async function sendReminderIfNeeded(groupId: string, date: string): Promi
 
   await Promise.allSettled(
     pending.map(async (user) => {
-      const args = { name: user.name, sendTime: group.sendTime, newsletterName: group.name, formUrl };
-      const subject = `⏰ Responde antes de las ${group.sendTime} — ${group.name}`;
+      const remaining = remainingLabel(minutesBefore);
+      const args = { name: user.name, sendTime: group.sendTime, remaining, newsletterName: group.name, formUrl };
+      const subject =
+        minutesBefore <= 30
+          ? `🚨 Últimos ${remaining} para mandar tu resumen — ${group.name}`
+          : `⏰ Faltan ${remaining}: manda tu resumen antes de las ${group.sendTime} — ${group.name}`;
       const text = reminderEmailText(args);
       const html = reminderEmailHtml(args);
       await transport.sendMail({ to: user.email, from, subject, text, html });
@@ -57,6 +69,6 @@ export async function sendReminderIfNeeded(groupId: string, date: string): Promi
     })
   );
 
-  await prisma.reminderSend.create({ data: { groupId, date, recipientCount: pending.length } });
+  await prisma.reminderSend.create({ data: { groupId, date, minutesBefore, recipientCount: pending.length } });
   return { status: "sent", recipientCount: pending.length };
 }

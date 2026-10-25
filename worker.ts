@@ -2,7 +2,7 @@ import "dotenv/config";
 import cron from "node-cron";
 import { prisma } from "@/lib/prisma";
 import { sendDailyNewsletter } from "@/lib/send-newsletter";
-import { sendReminderIfNeeded } from "@/lib/send-reminder";
+import { REMINDER_OFFSETS, sendReminderIfNeeded } from "@/lib/send-reminder";
 import { sendBirthdayNewsletter, birthdayPeopleOn, birthdayGroupsOf } from "@/lib/send-birthday";
 import { sendCommunicationNow } from "@/lib/send-communication";
 import { notifyAdminsOfScheduledResult } from "@/lib/notify-admins";
@@ -10,9 +10,9 @@ import { sendWeeklySummary, sendInactivityNudges } from "@/lib/send-engagement";
 import { sendDailyExtras } from "@/lib/send-extras";
 import { pruneNotifications } from "@/lib/notifications";
 import { expireMissions } from "@/lib/missions";
-import { todayLocalDate, nowLocalTime, subtractMinutesFromTime } from "@/lib/date";
+import { addDaysLocal, todayLocalDate, nowLocalTime, subtractMinutesFromTime } from "@/lib/date";
 
-// Cada grupo tiene su propia hora de envío (y su recordatorio 1 hora
+// Cada grupo tiene su propia hora de envío (y sus recordatorios 2 h, 1 h y 30 min
 // antes); los grupos en pausa no mandan nada.
 async function checkAndSend() {
   const settings = await prisma.settings.upsert({
@@ -42,13 +42,21 @@ async function checkAndSend() {
 async function checkAndSendReminder() {
   const now = nowLocalTime();
   const groups = await prisma.group.findMany({ where: { suspended: false, reminderEnabled: true } });
-  const date = todayLocalDate();
+  const today = todayLocalDate();
 
   for (const group of groups) {
-    if (now !== subtractMinutesFromTime(group.sendTime, 60)) continue;
-    const result = await sendReminderIfNeeded(group.id, date);
-    if (result.status === "sent") {
-      console.log(`[worker] Recordatorio de "${group.name}" enviado a ${result.recipientCount} persona(s) que faltaban responder.`);
+    for (const minutes of REMINDER_OFFSETS) {
+      if (now !== subtractMinutesFromTime(group.sendTime, minutes)) continue;
+      // Si el envío es poco después de medianoche, el recordatorio cae el día
+      // anterior pero es del boletín de mañana.
+      const [h, m] = group.sendTime.split(":").map(Number);
+      const date = h * 60 + m < minutes ? addDaysLocal(today, 1) : today;
+      const result = await sendReminderIfNeeded(group.id, date, minutes);
+      if (result.status === "sent") {
+        console.log(
+          `[worker] Recordatorio (${minutes} min antes) de "${group.name}" enviado a ${result.recipientCount} persona(s) que faltaban responder.`
+        );
+      }
     }
   }
 }

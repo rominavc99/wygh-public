@@ -135,7 +135,7 @@ erDiagram
         string tagline
         string greetingTemplate "admite {nombre}"
         string sendTime "HH:MM, hora local del servidor"
-        boolean reminderEnabled "1 h antes de sendTime"
+        boolean reminderEnabled "2 h, 1 h y 30 min antes de sendTime"
         boolean heroEnabled
         string heroTitle
         string heroParagraph
@@ -226,8 +226,9 @@ erDiagram
 
     NewsletterSend {
         string id PK
-        string groupId FK "único con date: uno por grupo y día"
+        string groupId FK "único con date y minutesBefore"
         string date
+        int minutesBefore "120, 60 o 30: uno de cada uno por grupo y día"
         datetime sentAt
         int recipientCount
         int responseCount
@@ -394,8 +395,8 @@ erDiagram
   alguien se eligen sus grupos.
 - **Ajustes del boletín por grupo**: saludo, hora, recordatorio, portada
   y frase fija viven en `Group` (antes en `Settings`; la migración los
-  copió al grupo inicial). `NewsletterSend`, `ReminderSend` y `DailyPick`
-  son por `(groupId, date)`; lo enviado antes de los grupos quedó en el
+  copió al grupo inicial). `NewsletterSend` y `DailyPick` son por
+  `(groupId, date)` y `ReminderSend` por `(groupId, date, minutesBefore)`; lo enviado antes de los grupos quedó en el
   grupo inicial.
 
 ### Interacción

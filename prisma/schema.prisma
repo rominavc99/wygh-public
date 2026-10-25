@@ -96,7 +96,7 @@ model Group {
   // destinatario al enviar.
   greetingTemplate String  @default("Hola, {nombre}, esto es lo que estarán haciendo tus amigos el día de hoy:")
   sendTime         String  @default("20:00")
-  // Recordatorio 1 hora antes de sendTime a los miembros que no hayan
+  // Recordatorios 2 h, 1 h y 30 min antes de sendTime a los miembros que no hayan
   // respondido todavía ese día.
   reminderEnabled  Boolean @default(true)
   // Portada tipo periódico, arriba de las respuestas del día.
@@ -565,18 +565,20 @@ model HeroPhoto {
   birthdayNewsletters BirthdayNewsletter[]
 }
 
-// Recordatorio enviado 1 hora antes de Group.sendTime a quien no había
-// respondido todavía. Único por grupo y fecha, igual que NewsletterSend,
-// para no mandarlo dos veces el mismo día.
+// Recordatorios a quien no había respondido todavía: 2 h, 1 h y 30 min
+// antes de Group.sendTime (ver REMINDER_OFFSETS en src/lib/send-reminder.ts).
+// Único por grupo, fecha y anticipación, para no mandar dos veces el mismo.
 model ReminderSend {
   id             String   @id @default(cuid())
   groupId        String
   group          Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
   date           String
+  /// Minutos antes del envío (120, 60 o 30).
+  minutesBefore  Int      @default(60)
   sentAt         DateTime @default(now())
   recipientCount Int
 
-  @@unique([groupId, date])
+  @@unique([groupId, date, minutesBefore])
 }
 
 /// Boletín diario de un grupo enviado un día (uno por grupo y fecha).

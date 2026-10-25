@@ -287,7 +287,7 @@ Proceso PM2 aparte que cada minuto revisa:
 | Qué | Cuándo | Función | Idempotencia |
 |---|---|---|---|
 | Boletín diario de cada grupo | `Group.sendTime` de cada grupo no suspendido (si `Settings.autoSend`) | `sendDailyNewsletter(groupId, date)` | `NewsletterSend(groupId, date)` |
-| Recordatorio a quien no ha respondido | 1 h antes del `sendTime` de cada grupo (si su `reminderEnabled`); solo a sus miembros sin respuesta ese día | `sendReminderIfNeeded(groupId, date)` | `ReminderSend(groupId, date)` |
+| Recordatorios a quien no ha respondido | 2 h, 1 h y 30 min antes del `sendTime` de cada grupo (si su `reminderEnabled`); solo a sus miembros sin respuesta para ese boletín | `sendReminderIfNeeded(groupId, date, minutesBefore)` | `ReminderSend(groupId, date, minutesBefore)` |
 | Boletín de cumpleaños (una edición por grupo de quien cumple) | `Settings.birthdaySendTime` (si `birthdayEnabled`) | `sendBirthdayNewsletter(userId, groupId, date)` | `BirthdayNewsletter(userId, groupId, date)` |
 | Comunicaciones programadas | cuando llega su `scheduledAt` | `sendCommunicationNow()` + aviso a admins | `Communication.status` |
 | Resumen semanal de participación (uno por grupo, a sus miembros) | `weeklySummaryDay` a las `weeklySummaryTime` (si `weeklySummaryEnabled`) | `sendWeeklySummary()` | `WeeklySummarySend(groupId, weekStart)` |
