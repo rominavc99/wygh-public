@@ -3,8 +3,7 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import { AuthError } from "next-auth";
-import { signIn } from "@/auth";
+import { sendLoginCode } from "@/lib/send-login-code";
 import { prisma } from "@/lib/prisma";
 import { rateLimit, loginEmailRateKey, clientIpFromHeaders } from "@/lib/rate-limit";
 import { normalizeLoginCode, verifyLoginCode } from "@/lib/login-code";
@@ -54,18 +53,11 @@ export async function requestMagicLink(
 
   // Sin el redirect propio de signIn (que iría a la pantalla genérica de
   // "revisa tu correo"): la pantalla de verificar necesita el correo para
-  // poder escribir ahí el código. Solo se atrapan los errores propios de
-  // Auth.js (p. ej. si no se pudo mandar el correo).
-  try {
-    await signIn("nodemailer", { email, redirectTo: callbackUrl, redirect: false });
-  } catch (error) {
-    if (error instanceof AuthError) {
-      console.error("[login] No se pudo mandar el enlace mágico:", error);
-      return {
-        error: "No pudimos enviarte el correo con el código. Intenta de nuevo en un momento; si sigue fallando, avísale al admin del grupo.",
-      };
-    }
-    throw error;
+  // poder escribir ahí el código.
+  if (!(await sendLoginCode(email, callbackUrl))) {
+    return {
+      error: "No pudimos enviarte el correo con el código. Intenta de nuevo en un momento; si sigue fallando, avísale al admin del grupo.",
+    };
   }
   redirect(`/login/verificar?${new URLSearchParams({ email, callbackUrl })}`);
 }
