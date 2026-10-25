@@ -9,34 +9,16 @@ import { MANUAL_EMAIL_KINDS, sendManualEmail, type ManualEmailKind } from "@/lib
 import { displayName } from "@/lib/display-name";
 import { sendGrantEmail, sendPendingGrantEmails } from "@/lib/extraordinary";
 
-const optionalUrl = z
-  .string()
-  .trim()
-  .max(500)
-  .refine((v) => v === "" || /^https?:\/\//i.test(v), "La URL debe empezar con http:// o https://");
-
+// Los ajustes del boletín de cada grupo (saludo, hora, recordatorio,
+// portada, frase fija) se editan en /admin/grupos/[id].
 const settingsSchema = z
   .object({
     newsletterName: z.string().trim().min(1).max(120),
     tagline: z.string().trim().max(200),
-    greetingTemplate: z
-      .string()
-      .trim()
-      .min(1, "Escribe un saludo.")
-      .max(300)
-      .refine((v) => v.includes("{nombre}"), 'El saludo debe incluir el marcador "{nombre}".'),
-    sendTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Usa el formato HH:MM."),
     autoSend: z.boolean(),
-    reminderEnabled: z.boolean(),
     lockResponsesAfterSend: z.boolean(),
     fromName: z.string().trim().min(1).max(120),
     fromEmail: z.string().trim().toLowerCase().email().or(z.literal("")),
-    heroEnabled: z.boolean(),
-    heroTitle: z.string().trim().max(140),
-    heroParagraph: z.string().trim().max(600),
-    heroImageUrl: optionalUrl,
-    heroLinkUrl: optionalUrl,
-    heroLinkText: z.string().trim().max(40).or(z.literal("")),
     weeklySummaryEnabled: z.boolean(),
     weeklySummaryDay: z.coerce.number().int().min(0).max(6),
     weeklySummaryTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Usa el formato HH:MM."),
@@ -51,10 +33,6 @@ const settingsSchema = z
     anniversaryEnabled: z.boolean(),
     wrappedEnabled: z.boolean(),
     welcomeEmailEnabled: z.boolean(),
-  })
-  .refine((v) => !v.heroEnabled || v.heroTitle.length > 0, {
-    message: "Si activas la portada, escribe un título.",
-    path: ["heroTitle"],
   });
 
 export type SettingsFormState =
@@ -71,19 +49,10 @@ export async function updateSettings(
   const parsed = settingsSchema.safeParse({
     newsletterName: formData.get("newsletterName"),
     tagline: formData.get("tagline"),
-    greetingTemplate: formData.get("greetingTemplate"),
-    sendTime: formData.get("sendTime"),
     autoSend: formData.get("autoSend") === "on",
-    reminderEnabled: formData.get("reminderEnabled") === "on",
     lockResponsesAfterSend: formData.get("lockResponsesAfterSend") === "on",
     fromName: formData.get("fromName"),
     fromEmail: formData.get("fromEmail"),
-    heroEnabled: formData.get("heroEnabled") === "on",
-    heroTitle: formData.get("heroTitle"),
-    heroParagraph: formData.get("heroParagraph"),
-    heroImageUrl: formData.get("heroImageUrl"),
-    heroLinkUrl: formData.get("heroLinkUrl"),
-    heroLinkText: formData.get("heroLinkText"),
     weeklySummaryEnabled: formData.get("weeklySummaryEnabled") === "on",
     weeklySummaryDay: formData.get("weeklySummaryDay"),
     weeklySummaryTime: formData.get("weeklySummaryTime"),

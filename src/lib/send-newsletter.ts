@@ -84,9 +84,10 @@ export async function embedResponsePhotosAsAttachments(html: string): Promise<{
 }
 
 /**
- * Manda `content` a todos los usuarios activos, cada uno con su saludo
- * personalizado y las fotos de respuestas incrustadas como adjuntos. Lo
- * usan el boletín diario y el de cumpleaños (src/lib/send-birthday.ts).
+ * Manda `content` a los usuarios activos (solo a los miembros de `groupId`
+ * si viene), cada uno con su saludo personalizado y las fotos de
+ * respuestas incrustadas como adjuntos. Lo usan el boletín diario de cada
+ * grupo y el de cumpleaños (src/lib/send-birthday.ts).
  */
 export async function deliverToActiveUsers({
   content,
@@ -94,6 +95,7 @@ export async function deliverToActiveUsers({
   greetingTemplate,
   settings,
   notification,
+  groupId,
 }: {
   content: { html: string; text: string };
   subject: string;
@@ -101,8 +103,11 @@ export async function deliverToActiveUsers({
   settings: { fromName: string; fromEmail: string };
   /** Notificación en el sitio para cada quien al que le llegó; lleva a /boletines. */
   notification: { kind: string; title: string; url: string; text: string };
+  groupId?: string;
 }): Promise<{ recipients: { email: string }[]; failures: string[] }> {
-  const recipients = await prisma.user.findMany({ where: { active: true } });
+  const recipients = await prisma.user.findMany({
+    where: { active: true, ...(groupId ? { groupMemberships: { some: { groupId } } } : {}) },
+  });
 
   const transport = getMailer();
   const from = settings.fromName
@@ -139,11 +144,17 @@ export async function deliverToActiveUsers({
 }
 
 /**
- * Envía el boletín del día indicado. Idempotente por fecha salvo `force`
- * (usado por el botón "Reenviar" del panel de admin).
+ * Envía el boletín del día indicado de un grupo a sus miembros activos.
+ * Idempotente por grupo y fecha salvo `force` (usado por el botón
+ * "Reenviar" del panel de admin).
  */
-export async function sendDailyNewsletter(date: string, options?: { force?: boolean }): Promise<SendResult> {
-  const existing = await prisma.newsletterSend.findUnique({ where: { date } });
+export async function sendDailyNewsletter(
+  groupId: string,
+  date: string,
+  options?: { force?: boolean }
+): Promise<SendResult> {
+  const where = { groupId_date: { groupId, date } };
+  const existing = await prisma.newsletterSend.findUnique({ where });
   if (existing && !options?.force) {
     return {
       status: "already_sent",
@@ -152,21 +163,23 @@ export async function sendDailyNewsletter(date: string, options?: { force?: bool
     };
   }
 
-  const [content, settings] = await Promise.all([
-    buildNewsletter(date),
+  const [content, settings, group] = await Promise.all([
+    buildNewsletter(groupId, date),
     prisma.settings.upsert({ where: { id: 1 }, create: { id: 1 }, update: {} }),
+    prisma.group.findUniqueOrThrow({ where: { id: groupId } }),
   ]);
 
   const { recipients, failures } = await deliverToActiveUsers({
     content,
-    subject: `${settings.newsletterName} — ${date}`,
-    greetingTemplate: settings.greetingTemplate,
+    subject: `${group.name} — ${date}`,
+    greetingTemplate: group.greetingTemplate,
     settings,
+    groupId,
     notification: {
       kind: "newsletter",
-      title: `📰 Salió el boletín del ${formatLocalDate(date)}`,
-      url: `/boletines?date=${date}`,
-      text: `${content.responses.length} ${content.responses.length === 1 ? "respuesta" : "respuestas"}. Toca para leer lo que hará el grupo.`,
+      title: `📰 Salió el boletín de ${group.name} del ${formatLocalDate(date)}`,
+      url: `/boletines?date=${date}&grupo=${groupId}`,
+      text: `${content.responses.length} ${content.responses.length === 1 ? "respuesta" : "respuestas"}. Toca para leer los resúmenes del grupo.`,
     },
   });
 
@@ -174,8 +187,9 @@ export async function sendDailyNewsletter(date: string, options?: { force?: bool
     failures.length === 0 ? "sent" : failures.length === recipients.length ? "failed" : "partial";
 
   await prisma.newsletterSend.upsert({
-    where: { date },
+    where,
     create: {
+      groupId,
       date,
       recipientCount: recipients.length,
       responseCount: content.responses.length,
@@ -183,7 +197,7 @@ export async function sendDailyNewsletter(date: string, options?: { force?: bool
       error: failures.length ? `Fallaron: ${failures.join(", ")}` : null,
       contentHtml: content.html,
       contentText: content.text,
-      greetingTemplate: settings.greetingTemplate,
+      greetingTemplate: group.greetingTemplate,
       heroJson: JSON.stringify(content.hero),
     },
     update: {
@@ -194,7 +208,7 @@ export async function sendDailyNewsletter(date: string, options?: { force?: bool
       error: failures.length ? `Fallaron: ${failures.join(", ")}` : null,
       contentHtml: content.html,
       contentText: content.text,
-      greetingTemplate: settings.greetingTemplate,
+      greetingTemplate: group.greetingTemplate,
       heroJson: JSON.stringify(content.hero),
     },
   });

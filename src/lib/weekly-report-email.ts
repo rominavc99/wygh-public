@@ -1,6 +1,6 @@
 import { escapeHtml, emailPalette, flatBg, FONT_DISPLAY } from "@/lib/email-theme";
 import { button, emailWindow } from "@/lib/engagement-email";
-import { shortDate, type PersonDays, type TopList, type WeeklyReport } from "@/lib/weekly-report";
+import { shortDate, type Moment, type PersonDays, type TopList, type WeeklyReport } from "@/lib/weekly-report";
 import type { UserStats } from "@/lib/participation-stats";
 
 type Args = { name: string; userId: string; report: WeeklyReport; siteUrl: string; isAdmin: boolean };
@@ -53,6 +53,29 @@ function topsHtml(tops: WeeklyReport["tops"]): string {
       <tr><td colspan="3" height="8" style="font-size:0;line-height:0;">&nbsp;</td></tr>`
     )
     .join("");
+}
+
+function momentsColumn(title: string, moments: Moment[]): string {
+  const items = moments
+    .map(
+      (m) =>
+        `<p class="text-ink" style="margin:0 0 8px;color:${l.ink};font-size:13px;line-height:1.45;">"${escapeHtml(m.text)}"<br><span class="text-soft" style="color:${l.soft};font-size:12px;">— ${escapeHtml(m.name)}, ${escapeHtml(shortDate(m.date))}</span></p>`
+    )
+    .join("");
+  return `<p class="text-ink" style="margin:0 0 6px;color:${l.ink};font-family:${FONT_DISPLAY};font-weight:700;font-size:13.5px;">${title}</p>${
+    items || `<p class="text-soft" style="margin:0;color:${l.soft};font-size:13px;">—</p>`
+  }`;
+}
+
+/** "Lo mejor" y "lo peor" de la semana, lado a lado como las parejas de más / menos. */
+function momentsHtml(moments: WeeklyReport["moments"]): string {
+  if (!moments.best.length && !moments.worst.length) return "";
+  return `${heading("🌈 Lo mejor y lo peor de la semana")}
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+                <td width="50%" valign="top" class="bg-bubble" style="${flatBg(l.bubble)}border-radius:10px;padding:10px 12px;">${momentsColumn("✨ Lo mejor", moments.best)}</td>
+                <td width="8" style="font-size:0;">&nbsp;</td>
+                <td width="50%" valign="top" class="bg-panel2" style="${flatBg(l.panel2)}border-radius:10px;padding:10px 12px;">${momentsColumn("🌧️ Lo peor", moments.worst)}</td>
+              </tr></table>`;
 }
 
 function peopleList(people: PersonDays[], empty: string): string {
@@ -196,6 +219,7 @@ export function weeklyReportEmailHtml({ name, userId, report, siteUrl, isAdmin }
               </table>
               ${mine ? paragraph(escapeHtml(mine)) : ""}
               ${highlights ? `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 6px;">${highlights}</table>` : ""}
+              ${momentsHtml(report.moments)}
               ${heading("Los que más y los que menos")}
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0">${topsHtml(report.tops)}</table>
               ${heading(`⏳ ${report.threshold} días o más sin responder`)}
@@ -230,6 +254,15 @@ export function weeklyReportEmailText({ name, userId, report, siteUrl, isAdmin }
     "",
     ...report.highlights.map((h) => `${h.icon} ${h.label}: ${h.text}`),
     "",
+    ...(report.moments.best.length || report.moments.worst.length
+      ? [
+          "Lo mejor de la semana:",
+          ...report.moments.best.map((m) => `- "${m.text}" — ${m.name}, ${shortDate(m.date)}`),
+          "Lo peor de la semana:",
+          ...report.moments.worst.map((m) => `- "${m.text}" — ${m.name}, ${shortDate(m.date)}`),
+          "",
+        ]
+      : []),
     ...report.tops.flatMap(([best, worst]) => [list(best), list(worst), ""]),
     `${report.threshold} días o más sin responder:`,
     ...people(report.missing, "Nadie."),

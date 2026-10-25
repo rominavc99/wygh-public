@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState, useTransition } from "react";
-import { toggleReaction, toggleCommentReaction } from "./actions";
+import { toggleReaction, toggleCommentReaction, toggleMissionReaction } from "./actions";
 import { EmojiPicker } from "./emoji-picker";
 import { Popover } from "./popover";
 import { QUICK_EMOJIS, EMOJI_CATEGORIES, ASCII_PICKER } from "@/lib/emoji-data";
@@ -11,8 +11,14 @@ export type { ReactionSummary };
 
 type PickerView = "quick" | "emoji" | "ascii" | "who" | null;
 
-/** A qué se reacciona: la respuesta completa o un comentario de su hilo. */
-export type ReactionTarget = { type: "response" | "comment"; id: string };
+/**
+ * A qué se reacciona: la respuesta completa o una misión cumplida (dentro
+ * del grupo en que se ve), o un comentario de su hilo (el comentario ya
+ * sabe de qué grupo es).
+ */
+export type ReactionTarget =
+  | { type: "response" | "mission"; id: string; groupId: string }
+  | { type: "comment"; id: string };
 
 export function ReactionBar({
   target,
@@ -35,7 +41,8 @@ export function ReactionBar({
     setView(null);
     setPending((p) => ({ ...p, [emoji]: true }));
     startTransition(async () => {
-      if (target.type === "response") await toggleReaction(target.id, emoji, kind);
+      if (target.type === "response") await toggleReaction(target.id, target.groupId, emoji, kind);
+      else if (target.type === "mission") await toggleMissionReaction(target.id, target.groupId, emoji, kind);
       else await toggleCommentReaction(target.id, emoji, kind);
       setPending((p) => ({ ...p, [emoji]: false }));
     });

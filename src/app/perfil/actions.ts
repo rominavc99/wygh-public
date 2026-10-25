@@ -49,6 +49,7 @@ export async function updateMyProfile(
   }
 
   revalidatePath("/perfil");
+  revalidatePath("/perfil/ajustes");
   revalidatePath("/");
   revalidatePath("/admin/cumpleanos");
   return { status: "success" };
@@ -74,6 +75,7 @@ export async function updateMyBirthday(
   await prisma.user.update({ where: { id: user.id }, data: { birthday: parsed.data } });
 
   revalidatePath("/perfil");
+  revalidatePath("/perfil/ajustes");
   revalidatePath("/");
   revalidatePath("/admin/cumpleanos");
   return { status: "success" };
@@ -84,4 +86,27 @@ export async function dismissBirthdayPrompt() {
   const user = await requireUser();
   await prisma.user.update({ where: { id: user.id }, data: { birthdayPromptDismissed: true } });
   revalidatePath("/");
+}
+
+/**
+ * Salirse de un grupo: deja de recibir su boletín y de verlo en
+ * /boletines. Sus respuestas, comentarios y reacciones ahí se quedan.
+ * Volver requiere el enlace de invitación o que un admin lo agregue.
+ */
+export async function leaveGroup(formData: FormData) {
+  const user = await requireUser();
+  const groupId = String(formData.get("groupId") ?? "");
+  if (!groupId) return;
+  await prisma.groupMember.deleteMany({ where: { groupId, userId: user.id } });
+  revalidatePath("/perfil");
+  revalidatePath("/perfil/ajustes");
+  revalidatePath("/");
+}
+
+/** "No me elijan para misiones": deja (o vuelve) a salir como persona de las misiones de otros. */
+export async function setMissionOptOut(formData: FormData): Promise<void> {
+  const user = await requireUser();
+  await prisma.user.update({ where: { id: user.id }, data: { missionOptOut: formData.get("optOut") === "on" } });
+  revalidatePath("/perfil");
+  revalidatePath("/perfil/ajustes");
 }

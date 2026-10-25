@@ -19,10 +19,12 @@ const statusChip: Record<string, string> = {
 };
 
 export default async function ComunicacionesPage() {
-  const [users, communications] = await Promise.all([
+  const [users, communications, groups] = await Promise.all([
     prisma.user.findMany({ where: { active: true }, orderBy: { name: "asc" } }),
     prisma.communication.findMany({ orderBy: { createdAt: "desc" } }),
+    prisma.group.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
   ]);
+  const groupName = new Map(groups.map((g) => [g.id, g.name]));
 
   const userOptions = users.map((u) => ({ id: u.id, label: `${displayName(u)} (${u.email})` }));
 
@@ -36,13 +38,13 @@ export default async function ComunicacionesPage() {
         </p>
       </div>
 
-      <CommunicationForm users={userOptions} />
+      <CommunicationForm users={userOptions} groups={groups.map((g) => ({ id: g.id, label: g.name }))} />
 
       <div className="flex flex-col gap-2">
         <h3 className="text-base font-bold text-ink">Historial</h3>
         <ul className="flex flex-col gap-2">
           {communications.map((c) => {
-            const recipientIds: string[] = c.audience === "selected" ? JSON.parse(c.recipientIds || "[]") : [];
+            const recipientIds: string[] = c.audience === "all" ? [] : JSON.parse(c.recipientIds || "[]");
             return (
               <li
                 key={c.id}
@@ -51,7 +53,11 @@ export default async function ComunicacionesPage() {
                 <Link href={`/admin/comunicaciones/${c.id}`} className="min-w-50 flex-1">
                   <p className="font-bold text-ink hover:text-accent-pink-2 hover:underline">{c.subject}</p>
                   <p className="text-sm text-ink-soft">
-                    {c.audience === "all" ? "Todos los usuarios activos" : `${recipientIds.length} persona(s) seleccionada(s)`}
+                    {c.audience === "all"
+                      ? "Todos los usuarios activos"
+                      : c.audience === "groups"
+                        ? `Grupos: ${recipientIds.map((id) => groupName.get(id) ?? "(borrado)").join(", ")}`
+                        : `${recipientIds.length} persona(s) seleccionada(s)`}
                     {" · "}
                     {c.status === "scheduled"
                       ? `Programado para ${new Date(c.scheduledAt).toLocaleString("es-ES")}`

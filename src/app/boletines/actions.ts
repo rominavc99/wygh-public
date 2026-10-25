@@ -5,7 +5,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth-guards";
 import { rateLimit } from "@/lib/rate-limit";
-import { notifyResponseInteraction, notifyCommentReaction, notifyNewComment } from "@/lib/notify-interaction";
+import { notifyResponseInteraction, notifyCommentReaction, notifyMissionReaction, notifyNewComment } from "@/lib/notify-interaction";
 import { displayName } from "@/lib/display-name";
 import {
   photoFromFormData,
@@ -14,27 +14,72 @@ import {
   deleteResponsePhotoFile,
   type IncomingPhoto,
 } from "@/lib/response-photos";
+import { canAccessGroup, canInteractInGroup } from "@/lib/groups";
+
+// Reacciones y comentarios van dentro de un grupo (los grupos están
+// aislados): solo puede interactuar quien tiene acceso al grupo, y solo
+// sobre respuestas que se mandaron a ese grupo.
 
 /** Agrega la reacción si no existía, o la quita si el usuario ya había reaccionado igual (toggle). */
-export async function toggleReaction(responseId: string, emoji: string, kind: "emoji" | "ascii") {
+export async function toggleReaction(responseId: string, groupId: string, emoji: string, kind: "emoji" | "ascii") {
   const user = await requireUser();
 
   if (!rateLimit(`reaction:${user.id}`, 60, 60 * 1000)) return;
 
   const trimmed = emoji.trim();
   if (!trimmed || trimmed.length > 40) return;
+  if (!(await canInteractInGroup(user, responseId, groupId))) return;
 
   const existing = await prisma.reaction.findUnique({
-    where: { responseId_userId_emoji: { responseId, userId: user.id, emoji: trimmed } },
+    where: { responseId_groupId_userId_emoji: { responseId, groupId, userId: user.id, emoji: trimmed } },
   });
 
   if (existing) {
     await prisma.reaction.delete({ where: { id: existing.id } });
   } else {
-    await prisma.reaction.create({ data: { responseId, userId: user.id, emoji: trimmed, kind } });
+    await prisma.reaction.create({ data: { responseId, groupId, userId: user.id, emoji: trimmed, kind } });
     // Sin await a propósito: el envío del correo no debe retrasar el toggle
     // que el usuario está esperando ver reflejado de inmediato en la UI.
-    void notifyResponseInteraction({ responseId, actorId: user.id, message: `reaccionó ${trimmed} a tu respuesta` });
+    void notifyResponseInteraction({ responseId, groupId, actorId: user.id, message: `reaccionó ${trimmed} a tu respuesta` });
+  }
+
+  revalidatePath("/boletines");
+}
+
+/**
+ * La misión cumplida `missionId`, si se puede interactuar con ella en
+ * `groupId`: se entregó en un resumen mandado a ese grupo (y hay acceso) y
+ * su persona es del grupo (solo así sale en ese boletín).
+ */
+async function interactableMission(user: { id: string; role: string }, missionId: string, groupId: string) {
+  const mission = await prisma.missionAssignment.findUnique({
+    where: { id: missionId },
+    select: { id: true, responseId: true, status: true, target: { select: { groupMemberships: { where: { groupId }, select: { groupId: true } } } } },
+  });
+  if (!mission?.responseId || mission.status !== "COMPLETED" || mission.target.groupMemberships.length === 0) return null;
+  if (!(await canInteractInGroup(user, mission.responseId, groupId))) return null;
+  return { id: mission.id, responseId: mission.responseId };
+}
+
+/** Igual que toggleReaction, pero sobre una misión cumplida. Avisa a quien la cumplió. */
+export async function toggleMissionReaction(missionId: string, groupId: string, emoji: string, kind: "emoji" | "ascii") {
+  const user = await requireUser();
+
+  if (!rateLimit(`reaction:${user.id}`, 60, 60 * 1000)) return;
+
+  const trimmed = emoji.trim();
+  if (!trimmed || trimmed.length > 40) return;
+  if (!(await interactableMission(user, missionId, groupId))) return;
+
+  const existing = await prisma.missionReaction.findUnique({
+    where: { missionId_groupId_userId_emoji: { missionId, groupId, userId: user.id, emoji: trimmed } },
+  });
+
+  if (existing) {
+    await prisma.missionReaction.delete({ where: { id: existing.id } });
+  } else {
+    await prisma.missionReaction.create({ data: { missionId, groupId, userId: user.id, emoji: trimmed, kind } });
+    void notifyMissionReaction({ missionId, groupId, actorId: user.id, emoji: trimmed });
   }
 
   revalidatePath("/boletines");
@@ -49,8 +94,8 @@ export async function toggleCommentReaction(commentId: string, emoji: string, ki
   const trimmed = emoji.trim();
   if (!trimmed || trimmed.length > 40) return;
 
-  const comment = await prisma.comment.findUnique({ where: { id: commentId }, select: { id: true } });
-  if (!comment) return;
+  const comment = await prisma.comment.findUnique({ where: { id: commentId }, select: { groupId: true } });
+  if (!comment || !(await canAccessGroup(user, comment.groupId))) return;
 
   const existing = await prisma.commentReaction.findUnique({
     where: { commentId_userId_emoji: { commentId, userId: user.id, emoji: trimmed } },
@@ -73,12 +118,13 @@ export type AddCommentState = { status: "idle" } | { status: "error"; message: s
 /**
  * Lee lo común a crear y editar un comentario: el texto, la foto nueva (en
  * base64, igual que la del formulario diario — ver photoFromFormData) y las
- * etiquetas. Solo cuentan las etiquetas de personas activas cuyo "@Nombre"
- * siga en el texto (por si lo borraron después de elegirlo en la lista).
+ * etiquetas. Solo cuentan las etiquetas de personas activas del grupo cuyo
+ * "@Nombre" siga en el texto (por si lo borraron después de elegirlo en la
+ * lista).
  */
 async function parseCommentForm(
   formData: FormData,
-  { hasPhotoAlready }: { hasPhotoAlready: boolean }
+  { hasPhotoAlready, groupId }: { hasPhotoAlready: boolean; groupId: string }
 ): Promise<
   | { ok: true; text: string; photo: IncomingPhoto | null; removePhoto: boolean; mentioned: { id: string }[] }
   | { ok: false; message: string }
@@ -107,7 +153,11 @@ async function parseCommentForm(
     mentionIds = [];
   }
   const mentioned = mentionIds.length
-    ? (await prisma.user.findMany({ where: { id: { in: mentionIds }, active: true } })).filter((u) =>
+    ? (
+        await prisma.user.findMany({
+          where: { id: { in: mentionIds }, active: true, groupMemberships: { some: { groupId } } },
+        })
+      ).filter((u) =>
         text.includes(`@${displayName(u)}`)
       )
     : [];
@@ -115,8 +165,11 @@ async function parseCommentForm(
   return { ok: true, text, photo, removePhoto, mentioned };
 }
 
+/** Comenta una respuesta, o una misión cumplida si viene `missionId` (su hilo es aparte). */
 export async function addComment(
   responseId: string,
+  groupId: string,
+  missionId: string | null,
   _prevState: AddCommentState,
   formData: FormData
 ): Promise<AddCommentState> {
@@ -125,8 +178,14 @@ export async function addComment(
   if (!rateLimit(`comment:${user.id}`, 30, 5 * 60 * 1000)) {
     return { status: "error", message: "Demasiados comentarios seguidos. Espera un momento." };
   }
+  if (!(await canInteractInGroup(user, responseId, groupId))) {
+    return { status: "error", message: "No puedes comentar en este grupo." };
+  }
+  if (missionId && (await interactableMission(user, missionId, groupId))?.responseId !== responseId) {
+    return { status: "error", message: "No puedes comentar esta misión." };
+  }
 
-  const form = await parseCommentForm(formData, { hasPhotoAlready: false });
+  const form = await parseCommentForm(formData, { hasPhotoAlready: false, groupId });
   if (!form.ok) return { status: "error", message: form.message };
 
   // Respuesta a un comentario: el hilo tiene un solo nivel, así que si se
@@ -138,9 +197,9 @@ export async function addComment(
   if (replyToId) {
     const target = await prisma.comment.findUnique({
       where: { id: replyToId },
-      select: { responseId: true, parentId: true, userId: true },
+      select: { responseId: true, groupId: true, parentId: true, userId: true, missionId: true },
     });
-    if (!target || target.responseId !== responseId) {
+    if (!target || target.responseId !== responseId || target.groupId !== groupId || target.missionId !== missionId) {
       return { status: "error", message: "Ese comentario ya no existe." };
     }
     parentId = target.parentId ?? replyToId;
@@ -152,10 +211,12 @@ export async function addComment(
   const comment = await prisma.comment.create({
     data: {
       responseId,
+      groupId,
       userId: user.id,
       text: form.text,
       photoFilename,
       parentId,
+      missionId,
       mentions: { create: form.mentioned.map((u) => ({ userId: u.id })) },
     },
   });
@@ -187,12 +248,16 @@ export async function editComment(
 
   const existing = await prisma.comment.findUnique({
     where: { id: commentId },
-    select: { userId: true, photoFilename: true, mentions: { select: { userId: true } } },
+    select: { userId: true, groupId: true, photoFilename: true, mentions: { select: { userId: true } } },
   });
   if (!existing) return { status: "error", message: "Ese comentario ya no existe." };
   if (existing.userId !== user.id) return { status: "error", message: "Solo puedes editar tus propios comentarios." };
+  if (!(await canAccessGroup(user, existing.groupId))) return { status: "error", message: "Ya no estás en este grupo." };
 
-  const form = await parseCommentForm(formData, { hasPhotoAlready: Boolean(existing.photoFilename) });
+  const form = await parseCommentForm(formData, {
+    hasPhotoAlready: Boolean(existing.photoFilename),
+    groupId: existing.groupId,
+  });
   if (!form.ok) return { status: "error", message: form.message };
 
   let photoFilename = existing.photoFilename;

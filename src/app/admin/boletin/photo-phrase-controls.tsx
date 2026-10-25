@@ -6,12 +6,14 @@ import { rerollPhotoAction, rerollPhraseAction, setManualPhotoAction } from "./a
 type Photo = { id: string; filename: string; description: string | null };
 
 export function PhotoPhraseControls({
+  groupId,
   date,
   photos,
   currentPhotoId,
   photoManual,
   phraseLocked,
 }: {
+  groupId: string;
   date: string;
   photos: Photo[];
   currentPhotoId: string | null;
@@ -25,7 +27,7 @@ export function PhotoPhraseControls({
   function rerollPhoto() {
     setPhotoPending(true);
     startTransition(async () => {
-      await rerollPhotoAction(date);
+      await rerollPhotoAction(groupId, date);
       setPhotoPending(false);
     });
   }
@@ -33,7 +35,7 @@ export function PhotoPhraseControls({
   function rerollPhrase() {
     setPhrasePending(true);
     startTransition(async () => {
-      await rerollPhraseAction(date);
+      await rerollPhraseAction(groupId, date);
       setPhrasePending(false);
     });
   }
@@ -51,6 +53,7 @@ export function PhotoPhraseControls({
         </label>
         <div className="flex flex-wrap items-center gap-2">
           <form action={setManualPhotoAction} className="flex items-center gap-2">
+            <input type="hidden" name="groupId" value={groupId} />
             <input type="hidden" name="date" value={date} />
             <select name="heroPhotoId" defaultValue={currentPhotoId ?? ""} className="xp-input">
               <option value="">Automática</option>
@@ -75,7 +78,7 @@ export function PhotoPhraseControls({
         <label className="text-xs font-bold text-ink-soft">Frase</label>
         {phraseLocked ? (
           <p className="text-xs text-ink-faint">
-            Hay una frase fija en Ajustes — quítala ahí para poder re-rolar.
+            Este grupo tiene una frase fija — quítala en Grupos para poder re-rolar.
           </p>
         ) : (
           <button type="button" disabled={phrasePending} onClick={rerollPhrase} className="xp-btn-secondary w-fit">

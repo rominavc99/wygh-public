@@ -37,7 +37,17 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   // propia del proyecto en vez de node_modules/@prisma/client; @auth/prisma-adapter
   // todavía tipa su parámetro contra el paquete clásico, así que el cast es
   // solo para TypeScript — en tiempo de ejecución el objeto tiene la misma forma.
-  adapter: PrismaAdapter(prisma as never),
+  adapter: {
+    ...PrismaAdapter(prisma as never),
+    // El adaptador usa delete(), que truena si la sesión ya no existe. Pasa
+    // al entrar con una cookie de una sesión borrada (Auth.js intenta cerrar
+    // "la sesión anterior" antes de crear la nueva) o cuando dos peticiones
+    // limpian a la vez la misma sesión vencida: el inicio de sesión fallaba
+    // con un AdapterError. Borrar algo que ya no está no es un error.
+    async deleteSession(sessionToken: string) {
+      await prisma.session.deleteMany({ where: { sessionToken } });
+    },
+  },
   // Autoalojado detrás de Cloudflare Tunnel (no es una plataforma
   // reconocida automáticamente por Auth.js) — AUTH_URL ya fija el host
   // esperado, así que esto no abre validación a hosts arbitrarios.

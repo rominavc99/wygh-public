@@ -39,9 +39,6 @@ export default async function NotificacionesPage({ searchParams }: { searchParam
             </p>
             <h1 className="text-2xl font-bold text-ink drop-shadow-[0_1px_2px_rgba(255,255,255,.6)]">Notificaciones</h1>
           </div>
-          <Link href="/" className="chip chip-blue">
-            ← Volver al formulario
-          </Link>
         </div>
 
         <div className="win">
@@ -51,7 +48,7 @@ export default async function NotificacionesPage({ searchParams }: { searchParam
             <div className="win-btns">
               <div className="win-btn">_</div>
               <div className="win-btn">□</div>
-              <Link href="/" className="win-btn close" aria-label="Volver al formulario">
+              <Link href="/" className="win-btn close" aria-label="Volver a Hoy">
                 ×
               </Link>
             </div>

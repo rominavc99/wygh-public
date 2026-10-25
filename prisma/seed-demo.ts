@@ -17,6 +17,7 @@ import path from "node:path";
 import { prisma } from "../src/lib/prisma";
 import { Role } from "../src/generated/prisma/enums";
 import { previousLocalDate, todayLocalDate } from "../src/lib/date";
+import { addNewUserToDefaultGroups, ensureResponseGroups } from "../src/lib/groups";
 
 if (process.env.NODE_ENV === "production") {
   throw new Error(
@@ -81,6 +82,7 @@ async function main() {
       prisma.user.create({ data: { name: u.name, email: u.email, role: Role.MEMBER, active: true } })
     )
   );
+  for (const user of users) await addNewUserToDefaultGroups(user.id);
 
   const dates: string[] = [todayLocalDate()];
   for (let i = 0; i < 4; i++) dates.push(previousLocalDate(dates[dates.length - 1]));
@@ -143,6 +145,7 @@ async function main() {
         },
         update: {},
       });
+      await ensureResponseGroups(response.id, user.id);
 
       // Reacciones de 1 a 3 compañeros distintos.
       const reactors = users.filter((u) => u.id !== user.id);
@@ -155,6 +158,7 @@ async function main() {
           .create({
             data: {
               responseId: response.id,
+              groupId: "grupo-inicial",
               userId: reactor.id,
               emoji,
               kind: useAscii ? "ascii" : "emoji",
@@ -167,24 +171,27 @@ async function main() {
       if (seed % 2 === 0) {
         const commenter = reactors[seed % reactors.length];
         await prisma.comment.create({
-          data: { responseId: response.id, userId: commenter.id, text: pick(COMMENTS, seed) },
+          data: { responseId: response.id, groupId: "grupo-inicial", userId: commenter.id, text: pick(COMMENTS, seed) },
         });
       }
     }
 
     // Registro de envío para que el día aparezca en /boletines (sin mandar
     // ningún correo real: se crea el registro directo, nunca se llama a
-    // sendDailyNewsletter).
-    await prisma.newsletterSend.upsert({
-      where: { date },
-      create: {
-        date,
-        recipientCount: respondents.length,
-        responseCount: respondents.length,
-        status: "sent",
-      },
-      update: {},
-    });
+    // sendDailyNewsletter), en cada grupo activo.
+    for (const group of await prisma.group.findMany({ where: { suspended: false } })) {
+      await prisma.newsletterSend.upsert({
+        where: { groupId_date: { groupId: group.id, date } },
+        create: {
+          groupId: group.id,
+          date,
+          recipientCount: respondents.length,
+          responseCount: respondents.length,
+          status: "sent",
+        },
+        update: {},
+      });
+    }
   }
 
   // Un par de frases con autor, para que la portada de algún día muestre algo.

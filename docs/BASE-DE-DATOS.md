@@ -69,6 +69,7 @@ erDiagram
     Reaction {
         string id PK
         string responseId FK
+        string groupId FK "grupo donde se reaccionó"
         string userId FK
         string emoji "emoji real o texto ascii"
         string kind "emoji | ascii"
@@ -78,6 +79,7 @@ erDiagram
     Comment {
         string id PK
         string responseId FK
+        string groupId FK "cada grupo tiene su hilo"
         string userId FK
         string parentId FK "nullable; comentario de primer nivel al que responde"
         string text "puede ir vacío si hay foto"
@@ -101,6 +103,60 @@ erDiagram
     }
 ```
 
+### Misiones
+
+- **`Mission`**: catálogo; `text` lleva `{usuario}`. Una misión que ya se
+  usó no se borra, se desactiva (`active = false`).
+- **`MissionAssignment`**: una oferta a `userId` para `targetId`. `date`
+  es la fecha del resumen en que se entrega (y el "día" de los límites).
+  `status`: `OFFERED` → `ACCEPTED` → `COMPLETED` (con `resolutionText`,
+  `photoFilename` y `responseId`) o `FAILED`; también `REJECTED` y
+  `CANCELLED`. `swaps` cuenta los "Cambiar actividad".
+- **En `User`**: `missionStrikes`, `missionBanUntil` y `missionOptOut`.
+
+### Grupos
+
+```mermaid
+erDiagram
+    Group ||--o{ GroupMember : "tiene"
+    User ||--o{ GroupMember : "pertenece a"
+    Group ||--o{ ResponseGroup : "recibe"
+    Response ||--o{ ResponseGroup : "se manda a"
+    Group ||--o{ NewsletterSend : "envía"
+    Group ||--o{ ReminderSend : "recuerda"
+    Group ||--o{ DailyPick : "portada del día"
+
+    Group {
+        string id PK "el inicial es 'grupo-inicial'"
+        string name UK "también es el nombre de su boletín"
+        boolean suspended "pausado: no envía ni aparece al responder"
+        string inviteToken UK "nullable; enlace para unirse, null = desactivado"
+        datetime createdAt
+        string tagline
+        string greetingTemplate "admite {nombre}"
+        string sendTime "HH:MM, hora local del servidor"
+        boolean reminderEnabled "2 h, 1 h y 30 min antes de sendTime"
+        boolean heroEnabled
+        string heroTitle
+        string heroParagraph
+        string heroImageUrl "vacío = foto automática"
+        string heroLinkUrl
+        string heroLinkText
+        string selectedPhraseId "vacío = frase automática (sin FK real)"
+    }
+
+    GroupMember {
+        string groupId PK,FK
+        string userId PK,FK
+        datetime joinedAt
+    }
+
+    ResponseGroup {
+        string responseId PK,FK
+        string groupId PK,FK
+    }
+```
+
 ### Boletines, portada y envíos
 
 ```mermaid
@@ -118,22 +174,12 @@ erDiagram
 
     Settings {
         int id PK "singleton, siempre 1"
-        string newsletterName
-        string tagline
-        string greetingTemplate "admite {nombre}"
-        string sendTime "HH:MM, hora local del servidor"
-        boolean autoSend
-        boolean reminderEnabled "1 h antes de sendTime"
+        string newsletterName "nombre del sitio"
+        string tagline "lema del sitio"
+        boolean autoSend "interruptor de todos los grupos"
         boolean lockResponsesAfterSend
         string fromName
         string fromEmail
-        boolean heroEnabled
-        string heroTitle
-        string heroParagraph
-        string heroImageUrl "vacío = foto automática"
-        string heroLinkUrl
-        string heroLinkText
-        string selectedPhraseId "vacío = frase automática (sin FK real)"
         boolean birthdayEnabled
         string birthdaySendTime "HH:MM"
         string birthdayGreetingTemplate "admite {nombre}"
@@ -171,6 +217,7 @@ erDiagram
     }
 
     DailyPick {
+        string groupId PK,FK
         string date PK "YYYY-MM-DD"
         string heroPhotoId FK "nullable"
         boolean heroPhotoManual "elegida a mano por el admin"
@@ -179,7 +226,9 @@ erDiagram
 
     NewsletterSend {
         string id PK
-        string date UK "una fila por día, idempotencia"
+        string groupId FK "único con date y minutesBefore"
+        string date
+        int minutesBefore "120, 60 o 30: uno de cada uno por grupo y día"
         datetime sentAt
         int recipientCount
         int responseCount
@@ -194,12 +243,14 @@ erDiagram
 
     ReminderSend {
         string id PK
-        string date UK "una fila por día, idempotencia"
+        string groupId FK "único con date: uno por grupo y día"
+        string date
         datetime sentAt
         int recipientCount
     }
 
     WeeklySummarySend {
+        string groupId PK,FK
         string weekStart PK "primer día de los 7 que cubre"
         string weekEnd
         datetime sentAt
@@ -227,7 +278,8 @@ erDiagram
     BirthdayNewsletter {
         string id PK
         string userId FK "quien cumple años"
-        string date "YYYY-MM-DD; único con userId"
+        string groupId FK "una edición por grupo"
+        string date "YYYY-MM-DD; único con userId y groupId"
         string heroPhotoId FK "nullable"
         boolean heroPhotoManual
         string status "nullable hasta enviarse"
@@ -310,10 +362,15 @@ erDiagram
 - **`Response` es única por `(userId, date)`**: volver a responder el
   mismo día actualiza la fila. `date` es un string `"YYYY-MM-DD"`, no un
   `DateTime`, para no lidiar con zonas horarias al comparar fechas.
-- **Los cuatro flujos del formulario** (llega a la hora normal, llega
-  tarde, no llega, se quedó en casa) comparten la tabla: `atHome`,
-  `arrivingLate` y `stayedHome` dicen cuál fue, y las reglas de qué campo
-  es obligatorio en cada uno viven en `src/lib/response-schema.ts`.
+- **Dos formatos en la misma tabla** (`format`): `DAY` es el resumen del
+  día (`didToday`, `wentWhere`, `bestPart`, `worstPart`, `tomorrowPlan`,
+  `mood`; `atHome` guarda "¿Te quedaste en tu casa?", `food` "¿Qué
+  comiste?" (`""` si no contestó) y `note` "Algo que quieras compartir").
+  `HOME` es el formato anterior, solo de consulta: sus cuatro flujos
+  (`atHome`, `arrivingLate`, `stayedHome`), `goingOut`, etc. En un `DAY`
+  esos campos quedan vacíos.
+- **`date` es la fecha del boletín**: en `DAY` el resumen habla del día
+  anterior (`describedDate()` en `src/lib/date.ts`).
 - **Foto de la respuesta**: el archivo vive en `data/uploads/respuestas/`
   (fuera de `public/`, ver `ARQUITECTURA.md`), pero `photoFilename` guarda
   el nombre lógico `IMG/respuestas/<archivo>`, que es la URL con la que
@@ -323,9 +380,32 @@ erDiagram
   el formulario al editar) y `phraseId` apunta a la fila creada en
   `Phrase`, para actualizarla en vez de duplicarla. No es FK real.
 
+### Grupos
+
+- **`Group`**: cada grupo tiene su propio boletín y está aislado de los
+  demás. Solo los admins los crean y gestionan. Una persona puede estar en
+  varios (`GroupMember`).
+- **`ResponseGroup`**: a qué grupos va cada respuesta. Una misma
+  respuesta (una fila en `Response`) puede ir a varios grupos. Si al
+  guardarla no va a ninguno, se manda a todos los grupos activos de su
+  autor (`ensureResponseGroups()` en `src/lib/groups.ts`).
+- **Grupo inicial**: la migración que introdujo los grupos creó
+  `grupo-inicial` (con el nombre del boletín de ese momento) con todos los
+  usuarios y todas las respuestas que ya existían. Al dar de alta a
+  alguien se eligen sus grupos.
+- **Ajustes del boletín por grupo**: saludo, hora, recordatorio, portada
+  y frase fija viven en `Group` (antes en `Settings`; la migración los
+  copió al grupo inicial). `NewsletterSend` y `DailyPick` son por
+  `(groupId, date)` y `ReminderSend` por `(groupId, date, minutesBefore)`; lo enviado antes de los grupos quedó en el
+  grupo inicial.
+
 ### Interacción
 
-- **`Reaction` y `CommentReaction`** tienen `@@unique([…Id, userId, emoji])`:
+- **Por grupo**: `Reaction` y `Comment` llevan `groupId`. Una respuesta
+  mandada a dos grupos tiene reacciones e hilo aparte en cada uno (las
+  reacciones a un comentario van con el comentario).
+- **`Reaction` y `CommentReaction`** son únicas por persona y emoji (por
+  respuesta y grupo, o por comentario):
   una persona puede reaccionar con varios emojis distintos, pero solo una
   vez con cada uno; repetir el mismo lo quita (toggle). `kind` solo sirve
   para pintar distinto los emojis y los emoticones ascii. Están en tablas
@@ -347,13 +427,16 @@ erDiagram
   primera vez que se resuelven (o cuando el admin las elige a mano o las
   re-rola), para que la vista previa y el envío real coincidan y la
   portada no cambie sola a media tarde.
-- **`Settings.selectedPhraseId`** no es FK real (vacío = modo automático);
-  se resuelve en `src/lib/phrases.ts`.
+- **`Group.selectedPhraseId`** no es FK real (vacío = modo automático);
+  se resuelve en `src/lib/phrases.ts`. La foto y la frase automáticas de
+  un grupo salen del catálogo y de las respuestas mandadas a ese grupo
+  (`heroPhotosForGroup()`, `phrasesForGroup()`).
 
 ### Envíos
 
-- **Idempotencia**: `NewsletterSend` y `ReminderSend` tienen `date` único,
-  y `BirthdayNewsletter` es único por `(userId, date)`. El worker revisa
+- **Idempotencia**: `NewsletterSend` y `ReminderSend` son únicos por
+  `(groupId, date)`, `BirthdayNewsletter` por `(userId, groupId, date)` y
+  `WeeklySummarySend` por `(groupId, weekStart)`. El worker revisa
   si ya existe el envío antes de mandar, así que aunque el cron corra de
   más o el proceso se reinicie, nunca sale dos veces lo mismo (salvo
   reenvío forzado desde el panel).
@@ -361,10 +444,10 @@ erDiagram
   `BirthdayNewsletter` guardan el contenido tal cual salió
   (`contentHtml`, `contentText`, `heroJson` y, en cumpleaños,
   `momentsJson`). `/boletines` y el panel muestran eso en vez de
-  reconstruirlo con los Ajustes actuales, que pueden haber cambiado. Los
+  reconstruirlo con los ajustes actuales, que pueden haber cambiado. Los
   envíos anteriores a esos campos los tienen vacíos y se reconstruyen.
 - **`BirthdayNewsletter`** es tabla aparte de `NewsletterSend` porque el
-  día del cumpleaños también sale el diario (único por fecha). La fila
+  día del cumpleaños también salen los diarios de cada grupo. La fila
   nace al resolver la foto de portada (vista previa o envío) y hace de
   `DailyPick` de esa edición; `sentAt` se llena al enviarse.
 - **`Communication`** son correos sueltos del admin, de inmediato o

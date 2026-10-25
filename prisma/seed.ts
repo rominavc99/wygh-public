@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { prisma } from "../src/lib/prisma";
 import { Role } from "../src/generated/prisma/enums";
+import { addNewUserToDefaultGroups } from "../src/lib/groups";
 
 async function main() {
   await prisma.settings.upsert({
@@ -16,7 +17,7 @@ async function main() {
     throw new Error("ADMIN_NAME y ADMIN_EMAIL son obligatorios en .env para el seed.");
   }
 
-  await prisma.user.upsert({
+  const admin = await prisma.user.upsert({
     where: { email: adminEmail },
     create: {
       name: adminName,
@@ -29,6 +30,12 @@ async function main() {
       active: true,
     },
   });
+
+  // En una instalación nueva, el admin queda en el grupo inicial (lo crea
+  // la migración de grupos) — si ya era miembro, no se toca.
+  if ((await prisma.groupMember.count({ where: { userId: admin.id } })) === 0) {
+    await addNewUserToDefaultGroups(admin.id);
+  }
 
   console.log(`Listo: admin "${adminName}" <${adminEmail}> y Settings creados.`);
 }

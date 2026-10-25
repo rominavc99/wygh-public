@@ -61,7 +61,9 @@ export async function requestMagicLink(
   } catch (error) {
     if (error instanceof AuthError) {
       console.error("[login] No se pudo mandar el enlace mágico:", error);
-      return { error: "No pudimos enviarte el enlace. Intenta de nuevo en un momento o avísale al admin del grupo." };
+      return {
+        error: "No pudimos enviarte el correo con el código. Intenta de nuevo en un momento; si sigue fallando, avísale al admin del grupo.",
+      };
     }
     throw error;
   }

@@ -344,6 +344,200 @@ h3 {
   color: var(--ink);
 }
 
+/* ---------- Navegación principal (src/app/app-nav.tsx) ---------- */
+
+.app-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px 6px 16px;
+  background: var(--chrome-3);
+  background-image: linear-gradient(180deg, var(--chrome-2), var(--chrome-3) 70%);
+  border-bottom: 3px solid var(--nb-line);
+  color: #fff;
+}
+
+.app-topbar-btn {
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  border-radius: 10px;
+}
+
+.app-topbar-btn[aria-current="page"] {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.app-tabbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 30;
+  display: flex;
+  gap: 4px;
+  padding: 6px 8px calc(8px + env(safe-area-inset-bottom));
+  background: linear-gradient(180deg, var(--chrome-1), var(--btn-grey-2));
+  border-top: 3px solid var(--nb-line);
+}
+
+.app-tab {
+  position: relative;
+  flex: 1;
+  min-height: 52px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  border: 2px solid transparent;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--chrome-4);
+  text-decoration: none;
+}
+
+.app-tab.is-active {
+  background: var(--panel);
+  border-color: var(--nb-line);
+  box-shadow: inset 2px 2px 0 0 rgba(0, 0, 0, 0.15);
+  color: var(--ink);
+}
+
+.nav-badge {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  border: 1.5px solid var(--nb-line);
+  background: var(--accent-pink);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Desde 768px la navegación es el menú lateral. Va aquí y no con md:hidden
+   porque estas reglas (sin capa) le ganan a las utilidades de Tailwind. */
+@media (min-width: 48rem) {
+  .app-topbar,
+  .app-tabbar {
+    display: none;
+  }
+}
+
+.app-sidebar {
+  position: sticky;
+  top: 24px;
+  flex: none;
+  width: 232px;
+  margin-top: 40px;
+}
+
+.app-side-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 2px solid transparent;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--chrome-4);
+  text-decoration: none;
+}
+
+a.app-side-link:hover {
+  background: var(--bubble-1);
+}
+
+.app-side-link.is-active {
+  background: var(--panel-2);
+  border-color: var(--nb-line);
+  box-shadow: inset 2px 2px 0 0 rgba(0, 0, 0, 0.12);
+  color: var(--ink);
+}
+
+/* ---------- Formulario del resumen del día ---------- */
+
+/* Sí / No como botones partidos: radios reales (accesibles con teclado)
+   escondidos dentro de cada <label>. */
+.seg {
+  display: flex;
+  border: 2.5px solid var(--nb-line);
+  border-radius: 12px;
+  overflow: hidden;
+  background: #fff;
+  box-shadow: var(--nb-shadow-sm) var(--nb-shadow-sm) 0 0 var(--nb-line);
+}
+
+.seg label {
+  position: relative;
+  flex: 1;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display), sans-serif;
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.seg label + label {
+  border-left: 2.5px solid var(--nb-line);
+}
+
+.seg input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.seg label:has(input:checked) {
+  background: var(--accent-pink);
+  color: #fff;
+}
+
+.seg label:has(input:focus-visible) {
+  outline: 3px solid var(--chrome-4);
+  outline-offset: -5px;
+}
+
+.form-section {
+  font-family: var(--font-display), sans-serif;
+  font-weight: 800;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent-pink-2);
+}
+
+.form-rule {
+  border: 0;
+  height: 2px;
+  background: var(--panel-edge);
+}
+
+.mission-card {
+  border: 2.5px solid var(--nb-line);
+  border-radius: 10px;
+  background: var(--bubble-1);
+  padding: 12px;
+}
+
 /* ---------- Gráficas del dashboard (/admin/estadisticas). Una sola
    serie por gráfica, en el teal del cromo; el tooltip sale al pasar el
    mouse o al enfocar la barra con el teclado. */

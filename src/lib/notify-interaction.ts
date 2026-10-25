@@ -8,16 +8,20 @@ import { recordNotification } from "@/lib/notifications";
 /**
  * Avisa por correo al dueño de una respuesta que alguien reaccionó o
  * comentó en ella (o, con notifyCommentReaction, al autor de un comentario
- * que alguien reaccionó a él). Best-effort: un error de envío no debe tumbar la
- * acción del usuario que reaccionó/comentó (por eso el try/catch acá
- * adentro en vez de dejar que la excepción suba).
+ * que alguien reaccionó a él). Todo pasa dentro de un grupo: solo se avisa a
+ * miembros de ese grupo, y el enlace lleva a su boletín. Best-effort: un
+ * error de envío no debe tumbar la acción del usuario que
+ * reaccionó/comentó (por eso el try/catch acá adentro en vez de dejar que
+ * la excepción suba).
  */
 export async function notifyResponseInteraction({
   responseId,
+  groupId,
   actorId,
   message,
 }: {
   responseId: string;
+  groupId: string;
   actorId: string;
   message: string;
 }): Promise<void> {
@@ -27,7 +31,31 @@ export async function notifyResponseInteraction({
       select: { date: true, user: true },
     });
     if (!response) return;
-    await notifyUser({ recipient: response.user, date: response.date, actorId, message });
+    await notifyUser({ recipient: response.user, date: response.date, groupId, actorId, message });
+  } catch (error) {
+    console.error("No se pudo enviar la notificación de interacción:", error);
+  }
+}
+
+/** Avisa a quien cumplió una misión que alguien reaccionó a ella. Best-effort, igual que arriba. */
+export async function notifyMissionReaction({
+  missionId,
+  groupId,
+  actorId,
+  emoji,
+}: {
+  missionId: string;
+  groupId: string;
+  actorId: string;
+  emoji: string;
+}): Promise<void> {
+  try {
+    const mission = await prisma.missionAssignment.findUnique({
+      where: { id: missionId },
+      select: { user: true, response: { select: { date: true } } },
+    });
+    if (!mission?.response) return;
+    await notifyUser({ recipient: mission.user, date: mission.response.date, groupId, actorId, message: `reaccionó ${emoji} a tu misión` });
   } catch (error) {
     console.error("No se pudo enviar la notificación de interacción:", error);
   }
@@ -46,10 +74,16 @@ export async function notifyCommentReaction({
   try {
     const comment = await prisma.comment.findUnique({
       where: { id: commentId },
-      select: { user: true, response: { select: { date: true } } },
+      select: { user: true, groupId: true, response: { select: { date: true } } },
     });
     if (!comment) return;
-    await notifyUser({ recipient: comment.user, date: comment.response.date, actorId, message: `reaccionó ${emoji} a tu comentario` });
+    await notifyUser({
+      recipient: comment.user,
+      date: comment.response.date,
+      groupId: comment.groupId,
+      actorId,
+      message: `reaccionó ${emoji} a tu comentario`,
+    });
   } catch (error) {
     console.error("No se pudo enviar la notificación de interacción:", error);
   }
@@ -58,25 +92,30 @@ export async function notifyCommentReaction({
 async function notifyUser({
   recipient,
   date,
+  groupId,
   actorId,
   message,
   quote,
 }: {
   recipient: { id: string; name: string; username: string | null; email: string; active: boolean };
   date: string;
+  groupId: string;
   actorId: string;
   message: string;
   /** Texto del comentario, para mostrarlo en el correo y en la notificación. */
   quote?: string;
 }): Promise<void> {
   if (recipient.id === actorId || !recipient.active) return;
+  // Quien ya no está en el grupo no puede ver lo que pasó ahí.
+  const member = await prisma.groupMember.count({ where: { groupId, userId: recipient.id } });
+  if (!member) return;
 
   const actor = await prisma.user.findUnique({ where: { id: actorId } });
   if (!actor) return;
 
   const settings = await prisma.settings.upsert({ where: { id: 1 }, create: { id: 1 }, update: {} });
   const from = settings.fromName ? `${settings.fromName} <${getFromAddress().replace(/.*<|>/g, "")}>` : getFromAddress();
-  const boletinUrl = `${getSiteUrl()}/boletines?date=${date}`;
+  const boletinUrl = `${getSiteUrl()}/boletines?date=${date}&grupo=${groupId}`;
   const actorName = displayName(actor);
   const recipientName = displayName(recipient);
 
@@ -121,14 +160,22 @@ export async function notifyNewComment({
   try {
     const comment = await prisma.comment.findUnique({
       where: { id: commentId },
-      select: { text: true, photoFilename: true, response: { select: { date: true, userId: true } } },
+      select: {
+        text: true,
+        photoFilename: true,
+        groupId: true,
+        missionId: true,
+        response: { select: { date: true, userId: true } },
+      },
     });
     if (!comment) return;
 
     const messages = new Map<string, string>();
     if (replyToUserId) messages.set(replyToUserId, "respondió a tu comentario");
     for (const id of mentionedIds) if (!messages.has(id)) messages.set(id, "te etiquetó en un comentario");
-    if (!onlyMentions && !messages.has(comment.response.userId)) messages.set(comment.response.userId, "comentó tu respuesta");
+    // En una misión, la respuesta es de quien la cumplió: se le avisa igual.
+    const ownerMessage = comment.missionId ? "comentó tu misión" : "comentó tu respuesta";
+    if (!onlyMentions && !messages.has(comment.response.userId)) messages.set(comment.response.userId, ownerMessage);
     messages.delete(actorId);
 
     // Un comentario puede ser solo una foto (sin texto).
@@ -137,7 +184,14 @@ export async function notifyNewComment({
     const recipients = await prisma.user.findMany({ where: { id: { in: [...messages.keys()] } } });
     await Promise.all(
       recipients.map((recipient) =>
-        notifyUser({ recipient, date: comment.response.date, actorId, message: messages.get(recipient.id)!, quote })
+        notifyUser({
+          recipient,
+          date: comment.response.date,
+          groupId: comment.groupId,
+          actorId,
+          message: messages.get(recipient.id)!,
+          quote,
+        })
       )
     );
   } catch (error) {

@@ -2,15 +2,18 @@ import "dotenv/config";
 import cron from "node-cron";
 import { prisma } from "@/lib/prisma";
 import { sendDailyNewsletter } from "@/lib/send-newsletter";
-import { sendReminderIfNeeded } from "@/lib/send-reminder";
-import { sendBirthdayNewsletter, birthdayPeopleOn } from "@/lib/send-birthday";
+import { REMINDER_OFFSETS, sendReminderIfNeeded } from "@/lib/send-reminder";
+import { sendBirthdayNewsletter, birthdayPeopleOn, birthdayGroupsOf } from "@/lib/send-birthday";
 import { sendCommunicationNow } from "@/lib/send-communication";
 import { notifyAdminsOfScheduledResult } from "@/lib/notify-admins";
 import { sendWeeklySummary, sendInactivityNudges } from "@/lib/send-engagement";
 import { sendDailyExtras } from "@/lib/send-extras";
 import { pruneNotifications } from "@/lib/notifications";
-import { todayLocalDate, nowLocalTime, subtractMinutesFromTime } from "@/lib/date";
+import { expireMissions } from "@/lib/missions";
+import { addDaysLocal, todayLocalDate, nowLocalTime, subtractMinutesFromTime } from "@/lib/date";
 
+// Cada grupo tiene su propia hora de envío (y sus recordatorios 2 h, 1 h y 30 min
+// antes); los grupos en pausa no mandan nada.
 async function checkAndSend() {
   const settings = await prisma.settings.upsert({
     where: { id: 1 },
@@ -19,35 +22,42 @@ async function checkAndSend() {
   });
 
   if (!settings.autoSend) return;
-  if (nowLocalTime() !== settings.sendTime) return;
-
+  const now = nowLocalTime();
+  const groups = await prisma.group.findMany({ where: { suspended: false, sendTime: now } });
   const date = todayLocalDate();
-  const existing = await prisma.newsletterSend.findUnique({ where: { date } });
-  if (existing) return;
 
-  console.log(`[worker] Hora de envío (${settings.sendTime}) alcanzada. Enviando boletín del ${date}...`);
-  const result = await sendDailyNewsletter(date);
-  console.log(
-    `[worker] Resultado: ${result.status} — ${result.recipientCount} destinatarios, ${result.responseCount} respuestas.` +
-      (result.error ? ` Error: ${result.error}` : "")
-  );
+  for (const group of groups) {
+    const existing = await prisma.newsletterSend.findUnique({ where: { groupId_date: { groupId: group.id, date } } });
+    if (existing) continue;
+
+    console.log(`[worker] Hora de envío de "${group.name}" (${group.sendTime}). Enviando boletín del ${date}...`);
+    const result = await sendDailyNewsletter(group.id, date);
+    console.log(
+      `[worker] "${group.name}": ${result.status} — ${result.recipientCount} destinatarios, ${result.responseCount} respuestas.` +
+        (result.error ? ` Error: ${result.error}` : "")
+    );
+  }
 }
 
 async function checkAndSendReminder() {
-  const settings = await prisma.settings.upsert({
-    where: { id: 1 },
-    create: { id: 1 },
-    update: {},
-  });
+  const now = nowLocalTime();
+  const groups = await prisma.group.findMany({ where: { suspended: false, reminderEnabled: true } });
+  const today = todayLocalDate();
 
-  if (!settings.reminderEnabled) return;
-  const reminderTime = subtractMinutesFromTime(settings.sendTime, 60);
-  if (nowLocalTime() !== reminderTime) return;
-
-  const date = todayLocalDate();
-  const result = await sendReminderIfNeeded(date);
-  if (result.status === "sent") {
-    console.log(`[worker] Recordatorio enviado a ${result.recipientCount} persona(s) que faltaban responder.`);
+  for (const group of groups) {
+    for (const minutes of REMINDER_OFFSETS) {
+      if (now !== subtractMinutesFromTime(group.sendTime, minutes)) continue;
+      // Si el envío es poco después de medianoche, el recordatorio cae el día
+      // anterior pero es del boletín de mañana.
+      const [h, m] = group.sendTime.split(":").map(Number);
+      const date = h * 60 + m < minutes ? addDaysLocal(today, 1) : today;
+      const result = await sendReminderIfNeeded(group.id, date, minutes);
+      if (result.status === "sent") {
+        console.log(
+          `[worker] Recordatorio (${minutes} min antes) de "${group.name}" enviado a ${result.recipientCount} persona(s) que faltaban responder.`
+        );
+      }
+    }
   }
 }
 
@@ -63,12 +73,15 @@ async function checkAndSendBirthdays() {
 
   const date = todayLocalDate();
   for (const user of await birthdayPeopleOn(date)) {
-    console.log(`[worker] Hoy cumple años ${user.name}. Enviando boletín de cumpleaños del ${date}...`);
-    const result = await sendBirthdayNewsletter(user.id, date);
-    console.log(
-      `[worker] Cumpleaños de ${user.name}: ${result.status} — ${result.recipientCount} destinatarios, ${result.momentCount} momentos.` +
-        (result.error ? ` Error: ${result.error}` : "")
-    );
+    // Una edición por cada grupo de quien cumple años, solo a ese grupo.
+    for (const group of await birthdayGroupsOf(user.id)) {
+      console.log(`[worker] Hoy cumple años ${user.name}. Enviando su boletín de cumpleaños a "${group.name}"...`);
+      const result = await sendBirthdayNewsletter(user.id, group.id, date);
+      console.log(
+        `[worker] Cumpleaños de ${user.name} en "${group.name}": ${result.status} — ${result.recipientCount} destinatarios, ${result.momentCount} momentos.` +
+          (result.error ? ` Error: ${result.error}` : "")
+      );
+    }
   }
 }
 
@@ -97,8 +110,10 @@ async function checkAndSendWeeklySummary() {
   if (new Date().getDay() !== settings.weeklySummaryDay) return;
   if (nowLocalTime() !== settings.weeklySummaryTime) return;
 
-  const result = await sendWeeklySummary(todayLocalDate());
-  console.log(`[worker] Resumen semanal: ${result.status} — ${result.recipientCount} destinatarios.`);
+  const results = await sendWeeklySummary(todayLocalDate());
+  for (const result of results) {
+    console.log(`[worker] Resumen semanal: ${result.status} — ${result.recipientCount} destinatarios.`);
+  }
 }
 
 async function checkAndSendInactivityNudges() {
@@ -123,6 +138,12 @@ async function checkAndSendExtras() {
     .filter(([, count]) => count > 0)
     .map(([kind, count]) => `${count} de ${kind}`);
   if (summary.length) console.log(`[worker] Correos especiales: ${summary.join(", ")}.`);
+}
+
+// Misiones cuyo resumen ya cerró sin entregarse: pasan a incumplidas.
+async function checkExpiredMissions() {
+  const { failed } = await expireMissions();
+  if (failed) console.log(`[worker] ${failed} misión(es) sin cumplir; se mandaron las advertencias.`);
 }
 
 // Notificaciones de más de un año: una vez al día, de madrugada.
@@ -155,6 +176,9 @@ cron.schedule("* * * * *", () => {
   });
   checkAndSendExtras().catch((error) => {
     console.error("[worker] Error al mandar correos especiales:", error);
+  });
+  checkExpiredMissions().catch((error) => {
+    console.error("[worker] Error al revisar misiones vencidas:", error);
   });
 });
 

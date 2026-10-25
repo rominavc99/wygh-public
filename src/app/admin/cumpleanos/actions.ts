@@ -60,25 +60,33 @@ export async function updateBirthdaySettings(
   return { status: "success" };
 }
 
-export async function sendBirthdayNow(userId: string, date: string, force: boolean): Promise<BirthdaySendResult> {
+export async function sendBirthdayNow(
+  userId: string,
+  groupId: string,
+  date: string,
+  force: boolean
+): Promise<BirthdaySendResult> {
   await requireAdmin();
-  const result = await sendBirthdayNewsletter(userId, date, { force });
+  const result = await sendBirthdayNewsletter(userId, groupId, date, { force });
   revalidatePath("/admin/cumpleanos");
   return result;
 }
 
-export async function rerollBirthdayPhotoAction(userId: string, date: string) {
+export async function rerollBirthdayPhotoAction(userId: string, groupId: string, date: string) {
   await requireAdmin();
-  await rerollBirthdayPhoto(userId, date);
+  await rerollBirthdayPhoto(userId, groupId, date);
   revalidatePath("/admin/cumpleanos");
 }
 
 export async function setManualBirthdayPhotoAction(formData: FormData) {
   await requireAdmin();
   const userId = formData.get("userId");
+  const groupId = formData.get("groupId");
   const date = formData.get("date");
   const heroPhotoId = formData.get("heroPhotoId");
-  if (typeof userId !== "string" || !userId || typeof date !== "string" || !date) return;
-  await setManualBirthdayPhoto(userId, date, typeof heroPhotoId === "string" && heroPhotoId ? heroPhotoId : null);
+  if (typeof userId !== "string" || !userId || typeof groupId !== "string" || !groupId || typeof date !== "string" || !date) {
+    return;
+  }
+  await setManualBirthdayPhoto(userId, groupId, date, typeof heroPhotoId === "string" && heroPhotoId ? heroPhotoId : null);
   revalidatePath("/admin/cumpleanos");
 }

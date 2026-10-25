@@ -2,6 +2,10 @@ import type { Metadata, Viewport } from "next";
 import { Baloo_2, Varela_Round } from "next/font/google";
 import "./globals.css";
 import { prisma } from "@/lib/prisma";
+import { auth } from "@/auth";
+import { unreadNotificationCount } from "@/lib/notifications";
+import { AppNav } from "./app-nav";
+import { SignOutButton } from "./sign-out-button";
 
 const baloo = Baloo_2({
   variable: "--font-baloo",
@@ -35,7 +39,26 @@ export const viewport: Viewport = {
   colorScheme: "light",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default async function RootLayout({ children }: LayoutProps<"/">) {
+  // La navegación solo aparece con sesión (en /login y compañía no).
+  const session = await auth();
+  const user = session?.user;
+  const nav = user
+    ? await Promise.all([
+        prisma.settings.findUnique({ where: { id: 1 }, select: { newsletterName: true } }),
+        unreadNotificationCount(user.id),
+        prisma.missionAssignment.count({ where: { userId: user.id, status: "ACCEPTED" } }),
+      ]).then(([settings, unread, pendingMissions]) => (
+        <AppNav
+          siteName={settings?.newsletterName ?? "De regreso a casa"}
+          unread={unread}
+          pendingMissions={pendingMissions}
+          isAdmin={user.role === "ADMIN"}
+          signOut={<SignOutButton />}
+        />
+      ))
+    : null;
+
   return (
     <html lang="es" className={`${baloo.variable} ${varela.variable} h-full antialiased`}>
       {/* suppressHydrationWarning solo tapa mismatches de los atributos
@@ -45,7 +68,14 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           y eso no es nada que la app esté haciendo mal. Un mismatch real
           en cualquier otro lado del árbol se sigue reportando normal. */}
       <body className="min-h-full flex flex-col relative" suppressHydrationWarning>
-        {children}
+        {nav ? (
+          <div className="flex flex-1 flex-col pb-[84px] md:flex-row md:items-start md:gap-2 md:pb-0 md:pl-6">
+            {nav}
+            <div className="flex min-w-0 flex-1 flex-col">{children}</div>
+          </div>
+        ) : (
+          children
+        )}
       </body>
     </html>
   );

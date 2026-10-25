@@ -45,10 +45,13 @@ export function diskPathFor(filename: string): string {
  */
 export type IncomingPhoto = { buffer: Buffer; type: string };
 
-/** Decodifica photoData/photoType del FormData. null si no viene foto nueva. */
-export function photoFromFormData(formData: FormData): IncomingPhoto | null {
-  const data = formData.get("photoData");
-  const type = formData.get("photoType");
+/**
+ * Decodifica photoData/photoType del FormData (con `prefix` delante, p. ej.
+ * las fotos de misiones). null si no viene foto nueva.
+ */
+export function photoFromFormData(formData: FormData, prefix = ""): IncomingPhoto | null {
+  const data = formData.get(`${prefix}photoData`);
+  const type = formData.get(`${prefix}photoType`);
   if (typeof data !== "string" || !data || typeof type !== "string") return null;
   return { buffer: Buffer.from(data, "base64"), type };
 }
@@ -88,6 +91,16 @@ export async function saveResponsePhoto(userId: string, date: string, photo: Inc
 export async function saveCommentPhoto(userId: string, photo: IncomingPhoto): Promise<string> {
   const ext = ALLOWED_TYPES[photo.type];
   const filename = `${RESPONSE_PHOTOS_DIR}/comentario-${userId.slice(0, 8)}-${crypto.randomUUID().slice(0, 12)}.${ext}`;
+  const fullPath = diskPathFor(filename);
+  await fs.mkdir(path.dirname(fullPath), { recursive: true });
+  await fs.writeFile(fullPath, photo.buffer);
+  return filename;
+}
+
+/** Igual que saveCommentPhoto, para la foto con la que se entrega una misión. */
+export async function saveMissionPhoto(userId: string, photo: IncomingPhoto): Promise<string> {
+  const ext = ALLOWED_TYPES[photo.type];
+  const filename = `${RESPONSE_PHOTOS_DIR}/mision-${userId.slice(0, 8)}-${crypto.randomUUID().slice(0, 12)}.${ext}`;
   const fullPath = diskPathFor(filename);
   await fs.mkdir(path.dirname(fullPath), { recursive: true });
   await fs.writeFile(fullPath, photo.buffer);

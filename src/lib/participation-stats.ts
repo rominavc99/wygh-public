@@ -9,8 +9,12 @@ import { lastVisits } from "@/lib/last-seen";
  *
  * "Día cerrado" = un día con boletín enviado (fila en NewsletterSend): son
  * los días en que se esperaba respuesta. Así el día de hoy no cuenta hasta
- * que sale el boletín, y si un día no hubo boletín nadie lo "debe". A cada
- * persona solo le cuentan los días cerrados desde que la dieron de alta.
+ * que sale el boletín, y si un día no hubo boletín nadie lo "debe". Cada
+ * grupo manda el suyo, así que a cada persona solo le cuentan los días en
+ * que salió el boletín de alguno de sus grupos, desde que entró a ese grupo
+ * (y nunca antes de su alta). Con `groupId`, todo se limita a ese grupo:
+ * sus miembros, sus días, y las respuestas, reacciones y comentarios que
+ * pasaron ahí.
  */
 
 export type UserStats = {
@@ -18,7 +22,7 @@ export type UserStats = {
   name: string;
   email: string;
   joined: string;
-  /** Días cerrados del periodo que le tocaban (desde su alta). */
+  /** Días cerrados del periodo que le tocaban (de sus grupos, desde que entró). */
   eligibleDays: number;
   responses: number;
   /** responses / eligibleDays, o null si no le tocaba ningún día. */
@@ -70,21 +74,36 @@ export type ParticipationStats = {
 export async function getParticipationStats({
   from,
   to,
+  groupId,
 }: {
   from: string | null;
   to: string;
+  /** Solo este grupo; sin él, todos. */
+  groupId?: string;
 }): Promise<ParticipationStats> {
   const dateRange = { ...(from ? { gte: from } : {}), lte: to };
+  const inGroup = groupId ? { groups: { some: { groupId } } } : {};
 
   const [users, allSends, lastResponses, responses, reactions, comments] = await Promise.all([
     prisma.user.findMany({
-      where: { active: true },
-      select: { id: true, name: true, username: true, email: true, createdAt: true },
+      where: { active: true, ...(groupId ? { groupMemberships: { some: { groupId } } } : {}) },
+      select: {
+        id: true,
+        name: true,
+        username: true,
+        email: true,
+        createdAt: true,
+        groupMemberships: { where: groupId ? { groupId } : {}, select: { groupId: true, joinedAt: true } },
+      },
     }),
-    prisma.newsletterSend.findMany({ select: { date: true }, orderBy: { date: "asc" } }),
-    prisma.response.groupBy({ by: ["userId"], _max: { date: true } }),
+    prisma.newsletterSend.findMany({
+      where: groupId ? { groupId } : {},
+      select: { date: true, groupId: true },
+      orderBy: { date: "asc" },
+    }),
+    prisma.response.groupBy({ by: ["userId"], where: inGroup, _max: { date: true } }),
     prisma.response.findMany({
-      where: { date: dateRange },
+      where: { date: dateRange, ...inGroup },
       select: {
         userId: true,
         date: true,
@@ -96,20 +115,35 @@ export async function getParticipationStats({
       },
     }),
     prisma.reaction.findMany({
-      where: { response: { date: dateRange } },
+      where: { response: { date: dateRange }, ...(groupId ? { groupId } : {}) },
       select: { userId: true, response: { select: { userId: true } } },
     }),
     prisma.comment.findMany({
-      where: { response: { date: dateRange } },
+      where: { response: { date: dateRange }, ...(groupId ? { groupId } : {}) },
       select: { userId: true, response: { select: { userId: true } } },
     }),
   ]);
 
   const visits = await lastVisits(users.map((u) => u.id));
   const today = todayLocalDate();
-  const closedDays = allSends.map((s) => s.date);
-  const days = closedDays.filter((d) => (!from || d >= from) && d <= to);
+  const inRange = (d: string) => (!from || d >= from) && d <= to;
+  const days = [...new Set(allSends.map((s) => s.date))].filter(inRange);
   const daySet = new Set(days);
+
+  // Días cerrados de cada persona: los de sus grupos, desde que entró a
+  // cada uno (y nunca antes de su alta), en orden.
+  const sendDatesByGroup = new Map<string, string[]>();
+  for (const s of allSends) sendDatesByGroup.set(s.groupId, [...(sendDatesByGroup.get(s.groupId) ?? []), s.date]);
+  const closedDaysBy = new Map<string, string[]>();
+  for (const user of users) {
+    const created = localDateOf(user.createdAt);
+    const mine = new Set<string>();
+    for (const m of user.groupMemberships) {
+      const since = [created, localDateOf(m.joinedAt)].sort()[1];
+      for (const d of sendDatesByGroup.get(m.groupId) ?? []) if (d >= since) mine.add(d);
+    }
+    closedDaysBy.set(user.id, [...mine].sort());
+  }
   const lastResponseBy = new Map(lastResponses.map((r) => [r.userId, r._max.date]));
 
   const respondedBy = new Map<string, Set<string>>();
@@ -144,8 +178,9 @@ export async function getParticipationStats({
 
   const userStats: UserStats[] = users.map((user) => {
     const joined = localDateOf(user.createdAt);
-    const myDays = days.filter((d) => d >= joined);
-    const responded = respondedBy.get(user.id) ?? new Set<string>();
+    const closedDays = closedDaysBy.get(user.id) ?? [];
+    const myDays = closedDays.filter(inRange);
+    const responded = new Set([...(respondedBy.get(user.id) ?? [])].filter((d) => myDays.includes(d)));
 
     let longestStreak = 0;
     let run = 0;
@@ -197,7 +232,7 @@ export async function getParticipationStats({
   });
 
   const daily: DayStats[] = days.map((date) => {
-    const eligibleUsers = userStats.filter((u) => u.joined <= date);
+    const eligibleUsers = userStats.filter((u) => closedDaysBy.get(u.id)?.includes(date));
     return {
       date,
       eligible: eligibleUsers.length,

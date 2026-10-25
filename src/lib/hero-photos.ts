@@ -79,10 +79,31 @@ export function toRecord(p: {
   };
 }
 
-/** El `date` (fecha de origen) de la foto que quedó fija para el día anterior, si hay. */
-async function previousPhotoDateTag(date: string): Promise<string | null> {
+/**
+ * Las fotos que puede usar la portada de un grupo: las del catálogo
+ * (public/IMG) y las que vienen de respuestas mandadas a ese grupo. Las
+ * fotos de respuestas de otros grupos no se cuelan, porque los grupos están
+ * aislados entre sí.
+ */
+export async function heroPhotosForGroup(groupId: string, photos: HeroPhotoRecord[]): Promise<HeroPhotoRecord[]> {
+  const isUserPhoto = (filename: string) => filename.startsWith(`${IMG_DIR}/respuestas/`);
+  const userPhotos = photos.filter((p) => isUserPhoto(p.filename)).map((p) => p.filename);
+  if (userPhotos.length === 0) return photos;
+  const inGroup = new Set(
+    (
+      await prisma.response.findMany({
+        where: { photoFilename: { in: userPhotos }, groups: { some: { groupId } } },
+        select: { photoFilename: true },
+      })
+    ).map((r) => r.photoFilename)
+  );
+  return photos.filter((p) => !isUserPhoto(p.filename) || inGroup.has(p.filename));
+}
+
+/** El `date` (fecha de origen) de la foto que quedó fija para el día anterior en el grupo, si hay. */
+async function previousPhotoDateTag(groupId: string, date: string): Promise<string | null> {
   const prevPick = await prisma.dailyPick.findUnique({
-    where: { date: previousLocalDate(date) },
+    where: { groupId_date: { groupId, date: previousLocalDate(date) } },
     include: { heroPhoto: true },
   });
   return prevPick?.heroPhoto?.date ?? null;
@@ -103,7 +124,9 @@ function poolExcluding(photos: HeroPhotoRecord[], excludeDateTag: string | null,
 }
 
 /**
- * Foto para el boletín de `date`. Por prioridad:
+ * Foto para el boletín de `date` del grupo `groupId` (cada grupo tiene su
+ * propia portada; `photos` ya viene filtrado con heroPhotosForGroup). Por
+ * prioridad:
  * 1. Elegida a mano por el admin para este día (ver setManualHeroPhoto).
  * 2. La que ya haya quedado fija para este día (resolución automática
  *    previa o re-rolada, ver rerollHeroPhoto) — se respeta aunque después
@@ -119,12 +142,14 @@ function poolExcluding(photos: HeroPhotoRecord[], excludeDateTag: string | null,
  *    en DailyPick para que la vista previa y el envío real coincidan.
  */
 export async function resolveHeroPhotoForDate(
+  groupId: string,
   date: string,
   photos: HeroPhotoRecord[]
 ): Promise<HeroPhotoRecord | null> {
   if (photos.length === 0) return null;
 
-  const pick = await prisma.dailyPick.findUnique({ where: { date } });
+  const where = { groupId_date: { groupId, date } };
+  const pick = await prisma.dailyPick.findUnique({ where });
 
   if (pick?.heroPhotoManual && pick.heroPhotoId) {
     const chosen = photos.find((p) => p.id === pick.heroPhotoId);
@@ -139,45 +164,50 @@ export async function resolveHeroPhotoForDate(
   const scheduled = photos.find((p) => p.date === date);
   if (scheduled) {
     await prisma.dailyPick.upsert({
-      where: { date },
-      create: { date, heroPhotoId: scheduled.id },
+      where,
+      create: { groupId, date, heroPhotoId: scheduled.id },
       update: { heroPhotoId: scheduled.id, heroPhotoManual: false },
     });
     return scheduled;
   }
 
-  const excludeDateTag = await previousPhotoDateTag(date);
+  const excludeDateTag = await previousPhotoDateTag(groupId, date);
   const resolved = pickStable(poolExcluding(photos, excludeDateTag), date);
   await prisma.dailyPick.upsert({
-    where: { date },
-    create: { date, heroPhotoId: resolved.id },
+    where,
+    create: { groupId, date, heroPhotoId: resolved.id },
     update: { heroPhotoId: resolved.id, heroPhotoManual: false },
   });
   return resolved;
 }
 
 /** Re-corre la selección automática para `date` (de verdad al azar, no determinística) y la deja fija. Ignora/limpia cualquier elección manual previa. */
-export async function rerollHeroPhoto(date: string, photos: HeroPhotoRecord[]): Promise<HeroPhotoRecord | null> {
+export async function rerollHeroPhoto(
+  groupId: string,
+  date: string,
+  photos: HeroPhotoRecord[]
+): Promise<HeroPhotoRecord | null> {
   if (photos.length === 0) return null;
 
-  const pick = await prisma.dailyPick.findUnique({ where: { date } });
-  const excludeDateTag = await previousPhotoDateTag(date);
+  const where = { groupId_date: { groupId, date } };
+  const pick = await prisma.dailyPick.findUnique({ where });
+  const excludeDateTag = await previousPhotoDateTag(groupId, date);
   const pool = poolExcluding(photos, excludeDateTag, pick?.heroPhotoId ?? undefined);
   const resolved = pool[Math.floor(Math.random() * pool.length)];
 
   await prisma.dailyPick.upsert({
-    where: { date },
-    create: { date, heroPhotoId: resolved.id },
+    where,
+    create: { groupId, date, heroPhotoId: resolved.id },
     update: { heroPhotoId: resolved.id, heroPhotoManual: false },
   });
   return resolved;
 }
 
 /** Fija a mano la foto del boletín de `date`. `heroPhotoId: null` vuelve a modo automático. */
-export async function setManualHeroPhoto(date: string, heroPhotoId: string | null): Promise<void> {
+export async function setManualHeroPhoto(groupId: string, date: string, heroPhotoId: string | null): Promise<void> {
   await prisma.dailyPick.upsert({
-    where: { date },
-    create: { date, heroPhotoId, heroPhotoManual: Boolean(heroPhotoId) },
+    where: { groupId_date: { groupId, date } },
+    create: { groupId, date, heroPhotoId, heroPhotoManual: Boolean(heroPhotoId) },
     update: { heroPhotoId, heroPhotoManual: Boolean(heroPhotoId) },
   });
 }

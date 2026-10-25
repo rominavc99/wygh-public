@@ -64,7 +64,13 @@ export async function GET(request: NextRequest) {
     case "bienvenida":
       return html((await welcomeParts(name)).html);
     default: {
-      const report = await buildWeeklyReport(addDaysLocal(today, -1));
+      // El de tu primer grupo (o el que diga ?grupo=).
+      const groupId =
+        request.nextUrl.searchParams.get("grupo") ??
+        (await prisma.group.findFirst({ where: { members: { some: { userId: user.id } } }, orderBy: { name: "asc" } }))?.id ??
+        (await prisma.group.findFirst({ orderBy: { name: "asc" } }))?.id;
+      if (!groupId) return html("<p>Todavía no hay grupos.</p>");
+      const report = await buildWeeklyReport(addDaysLocal(today, -1), groupId);
       const isAdmin = request.nextUrl.searchParams.get("correo") === "resumen-admin";
       return html(weeklyReportEmailHtml({ name, userId: user.id, report, siteUrl, isAdmin }));
     }

@@ -22,13 +22,20 @@ type Job = { name: string; send: () => Promise<boolean> };
 async function jobsFor(kind: ManualEmailKind, today: string, userId?: string): Promise<Job[]> {
   switch (kind) {
     case "weekly": {
-      const recipients = await prisma.user.findMany({ where: { active: true }, orderBy: { name: "asc" } });
-      // El reporte se arma una sola vez, y solo si de verdad se va a mandar.
-      let report: ReturnType<typeof buildWeeklyReport> | undefined;
-      return recipients.map((user) => ({
-        name: displayName(user),
-        send: async () => sendWeeklyReportTo(user, await (report ??= buildWeeklyReport(addDaysLocal(today, -1)))),
-      }));
+      // El de cada grupo a sus miembros; quien está en varios recibe varios.
+      const groups = await prisma.group.findMany({
+        where: { suspended: false },
+        orderBy: { name: "asc" },
+        include: { members: { where: { user: { active: true } }, include: { user: true }, orderBy: { user: { name: "asc" } } } },
+      });
+      return groups.flatMap((group) => {
+        // El reporte se arma una sola vez por grupo, y solo si de verdad se va a mandar.
+        let report: ReturnType<typeof buildWeeklyReport> | undefined;
+        return group.members.map(({ user }) => ({
+          name: groups.length > 1 ? `${displayName(user)} (${group.name})` : displayName(user),
+          send: async () => sendWeeklyReportTo(user, await (report ??= buildWeeklyReport(addDaysLocal(today, -1), group.id))),
+        }));
+      });
     }
     case "nudge": {
       const settings = await prisma.settings.upsert({ where: { id: 1 }, create: { id: 1 }, update: {} });
@@ -81,7 +88,7 @@ async function jobsFor(kind: ManualEmailKind, today: string, userId?: string): P
       if (!userId) return [];
       const user = await prisma.user.findUnique({ where: { id: userId } });
       if (!user?.active) return [];
-      return [{ name: displayName(user), send: async () => deliverNow(user, "welcome", await welcomeParts(displayName(user))) }];
+      return [{ name: displayName(user), send: async () => deliverNow(user, "welcome", await welcomeParts(displayName(user), user.id)) }];
     }
   }
 }

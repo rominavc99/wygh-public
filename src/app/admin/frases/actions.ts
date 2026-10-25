@@ -35,25 +35,21 @@ export async function deletePhrase(formData: FormData) {
   if (typeof id !== "string" || !id) return;
 
   await prisma.phrase.delete({ where: { id } });
-  // Si esta frase era la seleccionada a mano, vuelve a modo aleatorio.
-  const settings = await prisma.settings.findUnique({ where: { id: 1 } });
-  if (settings?.selectedPhraseId === id) {
-    await prisma.settings.update({ where: { id: 1 }, data: { selectedPhraseId: "" } });
-  }
+  // Los grupos que la tenían fija vuelven a modo aleatorio.
+  await prisma.group.updateMany({ where: { selectedPhraseId: id }, data: { selectedPhraseId: "" } });
   revalidatePath("/admin/frases");
   revalidatePath("/admin/boletin");
 }
 
+/** Fija la frase `id` en el grupo (o la quita, con id vacío: vuelve a modo aleatorio). */
 export async function selectPhrase(formData: FormData) {
   await requireAdmin();
   const id = formData.get("id");
-  if (typeof id !== "string") return;
+  const groupId = formData.get("groupId");
+  if (typeof id !== "string" || typeof groupId !== "string" || !groupId) return;
 
-  await prisma.settings.upsert({
-    where: { id: 1 },
-    create: { id: 1, selectedPhraseId: id },
-    update: { selectedPhraseId: id },
-  });
+  await prisma.group.update({ where: { id: groupId }, data: { selectedPhraseId: id } });
+  revalidatePath("/admin/grupos");
   revalidatePath("/admin/frases");
   revalidatePath("/admin/boletin");
 }

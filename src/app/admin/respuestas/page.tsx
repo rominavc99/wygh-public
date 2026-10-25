@@ -1,5 +1,7 @@
 import { prisma } from "@/lib/prisma";
-import { todayLocalDate, formatLocalDate } from "@/lib/date";
+import Link from "next/link";
+import { addDaysLocal, formatLocalDate } from "@/lib/date";
+import { pendingNewsletterDate } from "@/lib/groups";
 import { avatarGradient } from "@/lib/avatar";
 import { displayName } from "@/lib/display-name";
 
@@ -9,7 +11,14 @@ export default async function RespuestasPage({
   searchParams: Promise<{ date?: string }>;
 }) {
   const params = await searchParams;
-  const date = params.date || todayLocalDate();
+  // Por defecto, el boletín que todavía no sale: ahí están las respuestas
+  // que se están mandando ahorita (un resumen del día se guarda con la
+  // fecha del boletín en el que sale, no con la del día del que habla).
+  const [pending, lastSend] = await Promise.all([
+    pendingNewsletterDate(),
+    prisma.newsletterSend.findFirst({ orderBy: { date: "desc" }, select: { date: true } }),
+  ]);
+  const date = params.date || pending;
 
   const [responses, activeUsers] = await Promise.all([
     prisma.response.findMany({
@@ -28,7 +37,24 @@ export default async function RespuestasPage({
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h2 className="text-xl font-bold text-ink">🗂️ Respuestas</h2>
-          <p className="text-sm capitalize text-ink-soft">{formatLocalDate(date)}</p>
+          <p className="text-sm text-ink-soft">
+            Boletín del {formatLocalDate(date)}
+            {date === pending ? " (todavía no sale)" : ""}
+            {responses.some((r) => r.format === "DAY") ? ` · resúmenes del ${formatLocalDate(addDaysLocal(date, -1))}` : ""}
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Link href={`/admin/respuestas?date=${pending}`} className={`chip ${date === pending ? "chip-pink" : "chip-neutral"} no-underline`}>
+              Próximo boletín
+            </Link>
+            {lastSend && lastSend.date !== pending ? (
+              <Link
+                href={`/admin/respuestas?date=${lastSend.date}`}
+                className={`chip ${date === lastSend.date ? "chip-pink" : "chip-neutral"} no-underline`}
+              >
+                Último enviado
+              </Link>
+            ) : null}
+          </div>
         </div>
         <form className="flex items-end gap-2">
           <div className="flex flex-col gap-1">
@@ -63,34 +89,63 @@ export default async function RespuestasPage({
                 {name}
                 {r.user.username ? <span className="text-xs font-normal text-ink-soft"> ({r.user.name})</span> : null}
               </p>
-              {r.arrivingLate && r.beforeHomePlan ? (
+              {r.format === "DAY" ? (
+                <>
+                  {r.mood ? <span className="chip chip-neutral text-[11px]">{r.mood}</span> : null}
+                  <p>
+                    <strong className="text-ink">Hizo: </strong>
+                    {r.didToday}
+                  </p>
+                  <p>
+                    <strong className="text-ink">{r.atHome ? "Se quedó en casa." : "Fue a: "}</strong>
+                    {r.atHome ? null : r.wentWhere}
+                  </p>
+                  {[
+                    ["Comió", r.food],
+                    ["Lo mejor", r.bestPart],
+                    ["Lo peor", r.worstPart],
+                    ["Después", r.tomorrowPlan],
+                  ].map(([label, value]) =>
+                    value ? (
+                      <p key={label}>
+                        <strong className="text-ink">{label}: </strong>
+                        {value}
+                      </p>
+                    ) : null
+                  )}
+                </>
+              ) : (
+                <>
+                {r.arrivingLate && r.beforeHomePlan ? (
+                  <p>
+                    <strong className="text-ink">Antes de llegar: </strong>
+                    {r.beforeHomePlan}
+                  </p>
+                ) : null}
                 <p>
-                  <strong className="text-ink">Antes de llegar: </strong>
-                  {r.beforeHomePlan}
+                  <strong className="text-ink">
+                    {r.atHome ? (r.stayedHome ? "Hoy en casa: " : "Al llegar a casa: ") : "Para dónde va: "}
+                  </strong>
+                  {r.atHome ? r.homePlan : r.awayPlan}
                 </p>
-              ) : null}
-              <p>
-                <strong className="text-ink">
-                  {r.atHome ? (r.stayedHome ? "Hoy en casa: " : "Al llegar a casa: ") : "Para dónde va: "}
-                </strong>
-                {r.atHome ? r.homePlan : r.awayPlan}
-              </p>
-              {r.stayedHome && r.tonightPlan ? (
+                {r.stayedHome && r.tonightPlan ? (
+                  <p>
+                    <strong className="text-ink">Esta noche: </strong>
+                    {r.tonightPlan}
+                  </p>
+                ) : null}
                 <p>
-                  <strong className="text-ink">Esta noche: </strong>
-                  {r.tonightPlan}
+                  <strong className="text-ink">Come: </strong>
+                  {r.food}
                 </p>
-              ) : null}
-              <p>
-                <strong className="text-ink">Come: </strong>
-                {r.food}
-              </p>
-              {r.atHome && !r.stayedHome && !r.arrivingLate ? (
-                <p>
-                  <strong className="text-ink">Sale: </strong>
-                  {r.goingOut ? `Sí, a ${r.goingOutWhere}` : "No"}
-                </p>
-              ) : null}
+                {r.atHome && !r.stayedHome && !r.arrivingLate ? (
+                  <p>
+                    <strong className="text-ink">Sale: </strong>
+                    {r.goingOut ? `Sí, a ${r.goingOutWhere}` : "No"}
+                  </p>
+                ) : null}
+                </>
+              )}
               {r.note ? <p className="bubble-note">&quot;{r.note}&quot;</p> : null}
               {r.photoFilename ? (
                 <div className="mt-2 flex items-center gap-2">

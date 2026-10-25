@@ -14,12 +14,13 @@ export async function sendCommunicationNow(id: string): Promise<void> {
   const comm = await prisma.communication.findUnique({ where: { id } });
   if (!comm || comm.status !== "scheduled") return;
 
+  const ids = JSON.parse(comm.recipientIds || "[]") as string[];
   const [recipients, settings] = await Promise.all([
     comm.audience === "selected"
-      ? prisma.user.findMany({
-          where: { id: { in: JSON.parse(comm.recipientIds || "[]") as string[] }, active: true },
-        })
-      : prisma.user.findMany({ where: { active: true } }),
+      ? prisma.user.findMany({ where: { id: { in: ids }, active: true } })
+      : comm.audience === "groups"
+        ? prisma.user.findMany({ where: { active: true, groupMemberships: { some: { groupId: { in: ids } } } } })
+        : prisma.user.findMany({ where: { active: true } }),
     prisma.settings.upsert({ where: { id: 1 }, create: { id: 1 }, update: {} }),
   ]);
 

@@ -4,12 +4,13 @@ import { formatLocalDate, oneYearBefore } from "@/lib/date";
 import { displayName } from "@/lib/display-name";
 import { pickStable } from "@/lib/pick";
 import { getSiteUrl } from "@/lib/site-url";
-import { toRecord, type HeroPhotoRecord } from "@/lib/hero-photos";
+import { toRecord, heroPhotosForGroup, type HeroPhotoRecord } from "@/lib/hero-photos";
 import {
   renderEmailShell,
   renderHero,
   responseDetailsHtml,
   responseDetailsText,
+  responseFields,
   capitalize,
   type NewsletterHero,
   type NewsletterResponse,
@@ -20,7 +21,10 @@ import {
 // diario de la tarde. Mismo marco que el diario, pero con portada propia
 // (foto de las que subió quien cumple años, título/párrafo de Ajustes →
 // Cumpleaños) y, en vez de las respuestas del día, sus 5 respuestas del
-// último año con más reacciones + comentarios.
+// último año con más reacciones + comentarios. Sale una edición por cada
+// grupo de quien cumple años, solo a ese grupo: con el nombre y lema del
+// grupo, y con fotos y momentos (y sus reacciones y comentarios) de ese
+// grupo nada más.
 
 const TOP_MOMENTS = 5;
 
@@ -58,15 +62,21 @@ export function fillBirthdayTemplate(template: string, name: string): string {
   return template.replaceAll("{NOMBRE}", name.toLocaleUpperCase("es")).replaceAll("{nombre}", name);
 }
 
-/** Fotos que subió esta persona (desde su respuesta diaria o con autor asignado en /admin/fotos). */
-export async function photosByUser(userId: string): Promise<HeroPhotoRecord[]> {
+/**
+ * Fotos que subió esta persona (desde su respuesta diaria o con autor
+ * asignado en /admin/fotos) que puede ver el grupo: las de sus respuestas
+ * solo si se mandaron a ese grupo.
+ */
+export async function photosByUser(userId: string, groupId: string): Promise<HeroPhotoRecord[]> {
   const photos = await prisma.heroPhoto.findMany({
     where: { authorId: userId },
     orderBy: { filename: "asc" },
     include: { author: true },
   });
-  return photos.map(toRecord);
+  return heroPhotosForGroup(groupId, photos.map(toRecord));
 }
+
+const editionKey = (userId: string, groupId: string, date: string) => ({ userId_groupId_date: { userId, groupId, date } });
 
 /**
  * Foto de portada del boletín de cumpleaños de `userId` en `date`. Igual
@@ -75,10 +85,10 @@ export async function photosByUser(userId: string): Promise<HeroPhotoRecord[]> {
  * fotos de esa persona (estable para esa fecha) y se deja fija. null si la
  * persona nunca subió fotos — la portada sale sin imagen.
  */
-export async function resolveBirthdayPhoto(userId: string, date: string): Promise<HeroPhotoRecord | null> {
+export async function resolveBirthdayPhoto(userId: string, groupId: string, date: string): Promise<HeroPhotoRecord | null> {
   const [photos, edition] = await Promise.all([
-    photosByUser(userId),
-    prisma.birthdayNewsletter.findUnique({ where: { userId_date: { userId, date } } }),
+    photosByUser(userId, groupId),
+    prisma.birthdayNewsletter.findUnique({ where: editionKey(userId, groupId, date) }),
   ]);
   if (photos.length === 0) return null;
 
@@ -87,18 +97,18 @@ export async function resolveBirthdayPhoto(userId: string, date: string): Promis
 
   const resolved = pickStable(photos, `${date}:${userId}`);
   await prisma.birthdayNewsletter.upsert({
-    where: { userId_date: { userId, date } },
-    create: { userId, date, heroPhotoId: resolved.id },
+    where: editionKey(userId, groupId, date),
+    create: { userId, groupId, date, heroPhotoId: resolved.id },
     update: { heroPhotoId: resolved.id, heroPhotoManual: false },
   });
   return resolved;
 }
 
 /** Vuelve a sortear la foto (de verdad al azar, distinta a la actual si se puede) y la deja fija. */
-export async function rerollBirthdayPhoto(userId: string, date: string): Promise<void> {
+export async function rerollBirthdayPhoto(userId: string, groupId: string, date: string): Promise<void> {
   const [photos, edition] = await Promise.all([
-    photosByUser(userId),
-    prisma.birthdayNewsletter.findUnique({ where: { userId_date: { userId, date } } }),
+    photosByUser(userId, groupId),
+    prisma.birthdayNewsletter.findUnique({ where: editionKey(userId, groupId, date) }),
   ]);
   if (photos.length === 0) return;
 
@@ -107,33 +117,38 @@ export async function rerollBirthdayPhoto(userId: string, date: string): Promise
   const resolved = pool[Math.floor(Math.random() * pool.length)];
 
   await prisma.birthdayNewsletter.upsert({
-    where: { userId_date: { userId, date } },
-    create: { userId, date, heroPhotoId: resolved.id },
+    where: editionKey(userId, groupId, date),
+    create: { userId, groupId, date, heroPhotoId: resolved.id },
     update: { heroPhotoId: resolved.id, heroPhotoManual: false },
   });
 }
 
 /** Fija a mano la foto. `heroPhotoId: null` vuelve a modo automático. */
-export async function setManualBirthdayPhoto(userId: string, date: string, heroPhotoId: string | null): Promise<void> {
+export async function setManualBirthdayPhoto(
+  userId: string,
+  groupId: string,
+  date: string,
+  heroPhotoId: string | null
+): Promise<void> {
   await prisma.birthdayNewsletter.upsert({
-    where: { userId_date: { userId, date } },
-    create: { userId, date, heroPhotoId, heroPhotoManual: Boolean(heroPhotoId) },
+    where: editionKey(userId, groupId, date),
+    create: { userId, groupId, date, heroPhotoId, heroPhotoManual: Boolean(heroPhotoId) },
     update: { heroPhotoId, heroPhotoManual: Boolean(heroPhotoId) },
   });
 }
 
 /**
  * Las TOP_MOMENTS respuestas de `userId` del último año (desde el mismo día
- * del año anterior hasta el día antes de `date`) con más interacciones
- * (reacciones + comentarios). Solo cuentan las que tuvieron al menos una;
- * empates, la más reciente primero.
+ * del año anterior hasta el día antes de `date`) mandadas al grupo, con más
+ * interacciones en ese grupo (reacciones + comentarios). Solo cuentan las
+ * que tuvieron al menos una; empates, la más reciente primero.
  */
-export async function topMoments(userId: string, date: string): Promise<BirthdayMoment[]> {
+export async function topMoments(userId: string, groupId: string, date: string): Promise<BirthdayMoment[]> {
   const responses = await prisma.response.findMany({
-    where: { userId, date: { gte: oneYearBefore(date), lt: date } },
+    where: { userId, date: { gte: oneYearBefore(date), lt: date }, groups: { some: { groupId } } },
     include: {
-      reactions: true,
-      comments: { include: { user: true }, orderBy: { createdAt: "asc" } },
+      reactions: { where: { groupId } },
+      comments: { where: { groupId, missionId: null }, include: { user: true }, orderBy: { createdAt: "asc" } },
     },
   });
 
@@ -148,31 +163,20 @@ export async function topMoments(userId: string, date: string): Promise<Birthday
       return {
         responseId: r.id,
         date: r.date,
-        atHome: r.atHome,
-        arrivingLate: r.arrivingLate,
-        beforeHomePlan: r.beforeHomePlan,
-        stayedHome: r.stayedHome,
-        homePlan: r.homePlan,
-        awayPlan: r.awayPlan,
-        tonightPlan: r.tonightPlan,
-        food: r.food,
-        goingOut: r.goingOut,
-        goingOutWhere: r.goingOutWhere,
-        note: r.note,
-        photoUrl: r.photoFilename ? `${getSiteUrl()}/${r.photoFilename}` : null,
-        photoDescription: r.photoDescription,
+        ...responseFields(r),
         reactions: [...counts].map(([emoji, count]) => ({ emoji, count })).sort((a, b) => b.count - a.count),
         comments: r.comments.map((c) => ({ authorName: displayName(c.user), text: c.text || (c.photoFilename ? "📷 (foto)" : "") })),
       };
     });
 }
 
-export async function buildBirthdayNewsletter(userId: string, date: string): Promise<BirthdayNewsletterContent> {
-  const [user, settings, photo, moments] = await Promise.all([
+export async function buildBirthdayNewsletter(userId: string, groupId: string, date: string): Promise<BirthdayNewsletterContent> {
+  const [user, settings, group, photo, moments] = await Promise.all([
     prisma.user.findUniqueOrThrow({ where: { id: userId } }),
     prisma.settings.upsert({ where: { id: 1 }, create: { id: 1 }, update: {} }),
-    resolveBirthdayPhoto(userId, date),
-    topMoments(userId, date),
+    prisma.group.findUniqueOrThrow({ where: { id: groupId } }),
+    resolveBirthdayPhoto(userId, groupId, date),
+    topMoments(userId, groupId, date),
   ]);
 
   const celebrantName = displayName(user);
@@ -190,8 +194,8 @@ export async function buildBirthdayNewsletter(userId: string, date: string): Pro
   const topTitle = fillBirthdayTemplate(settings.birthdayTopTitle, celebrantName);
 
   return {
-    html: renderBirthdayHtml({ date, hero, moments, topTitle, newsletterName: settings.newsletterName, tagline: settings.tagline }),
-    text: renderBirthdayText({ date, hero, moments, topTitle, newsletterName: settings.newsletterName }),
+    html: renderBirthdayHtml({ date, hero, moments, topTitle, newsletterName: group.name, tagline: group.tagline }),
+    text: renderBirthdayText({ date, hero, moments, topTitle, newsletterName: group.name }),
     hero,
     moments,
     greetingTemplate: settings.birthdayGreetingTemplate,
@@ -342,8 +346,12 @@ export type BirthdayNewsletterPreview = {
 };
 
 /** Para la vista previa del admin: lo congelado si ya se envió, si no se arma en vivo. */
-export async function getBirthdayNewsletterPreview(userId: string, date: string): Promise<BirthdayNewsletterPreview> {
-  const edition = await prisma.birthdayNewsletter.findUnique({ where: { userId_date: { userId, date } } });
+export async function getBirthdayNewsletterPreview(
+  userId: string,
+  groupId: string,
+  date: string
+): Promise<BirthdayNewsletterPreview> {
+  const edition = await prisma.birthdayNewsletter.findUnique({ where: editionKey(userId, groupId, date) });
 
   if (edition?.sentAt && edition.contentHtml) {
     return {
@@ -360,7 +368,7 @@ export async function getBirthdayNewsletterPreview(userId: string, date: string)
     };
   }
 
-  const content = await buildBirthdayNewsletter(userId, date);
+  const content = await buildBirthdayNewsletter(userId, groupId, date);
   return {
     sent: false,
     frozen: false,

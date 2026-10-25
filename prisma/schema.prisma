@@ -58,6 +58,90 @@ model User {
   // Permisos de respuesta extraordinaria: los que recibió y los que dio (admin).
   extraordinaryGrants      ExtraordinaryGrant[] @relation("ExtraordinaryGrantUser")
   extraordinaryGrantsGiven ExtraordinaryGrant[] @relation("ExtraordinaryGrantAdmin")
+  groupMemberships GroupMember[]
+
+  // Misiones (ver src/lib/missions.ts). Cada incumplimiento suma una
+  // advertencia; a las 3 queda fuera de las misiones hasta missionBanUntil
+  // (ni puede aceptar ni sale como opción) y al terminar vuelve a 0.
+  missionStrikes   Int       @default(0)
+  missionBanUntil  DateTime?
+  /// Pidió desde /perfil no salir nunca como persona de una misión.
+  missionOptOut    Boolean   @default(false)
+  missions         MissionAssignment[] @relation("MissionAssignee")
+  missionsForMe    MissionAssignment[] @relation("MissionTarget")
+  missionReactions MissionReaction[]
+}
+
+/// Grupo de amigos con su propio boletín (ver src/lib/groups.ts). Solo los
+/// admins los crean y gestionan; una persona puede estar en varios, y al
+/// responder elige a cuáles manda su respuesta (ResponseGroup). Los grupos
+/// están aislados entre sí. La migración que los introdujo creó uno inicial
+/// con todos los usuarios y todas las respuestas que ya existían.
+model Group {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  /// Pausado por un admin: no se envía su boletín ni aparece al responder,
+  /// pero sus miembros siguen viendo el historial.
+  suspended Boolean  @default(false)
+  /// Enlace para unirse (/grupos/unirse/<token>); null = desactivado.
+  /// Regenerarlo invalida el anterior.
+  inviteToken String? @unique
+  createdAt DateTime @default(now())
+
+  // Ajustes del boletín de este grupo (antes vivían en Settings; la
+  // migración que los movió copió ahí los de ese momento). El nombre del
+  // grupo es el nombre de su boletín.
+  tagline          String  @default("Una nota diaria entre amigos")
+  // Admite el marcador {nombre}, que se reemplaza por el nombre de cada
+  // destinatario al enviar.
+  greetingTemplate String  @default("Hola, {nombre}, esto es lo que estarán haciendo tus amigos el día de hoy:")
+  sendTime         String  @default("20:00")
+  // Recordatorios 2 h, 1 h y 30 min antes de sendTime a los miembros que no hayan
+  // respondido todavía ese día.
+  reminderEnabled  Boolean @default(true)
+  // Portada tipo periódico, arriba de las respuestas del día.
+  heroEnabled      Boolean @default(false)
+  heroTitle        String  @default("")
+  heroParagraph    String  @default("")
+  heroImageUrl     String  @default("")
+  heroLinkUrl      String  @default("")
+  heroLinkText     String  @default("Leer más")
+  // Frase del día fija a mano; vacío = una al azar (estable para la fecha).
+  selectedPhraseId String  @default("")
+
+  members     GroupMember[]
+  responses   ResponseGroup[]
+  sends       NewsletterSend[]
+  reminders   ReminderSend[]
+  dailyPicks  DailyPick[]
+  reactions   Reaction[]
+  comments    Comment[]
+  birthdayNewsletters BirthdayNewsletter[]
+  weeklySummaries     WeeklySummarySend[]
+  missionReactions    MissionReaction[]
+}
+
+model GroupMember {
+  groupId  String
+  group    Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  userId   String
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  joinedAt DateTime @default(now())
+
+  @@id([groupId, userId])
+  @@index([userId])
+}
+
+/// A qué grupos mandó alguien su respuesta del día. Una misma respuesta
+/// puede ir a varios grupos.
+model ResponseGroup {
+  responseId String
+  response   Response @relation(fields: [responseId], references: [id], onDelete: Cascade)
+  groupId    String
+  group      Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@id([responseId, groupId])
+  @@index([groupId])
 }
 
 // Reacción de un usuario a la respuesta de alguien en /boletines. `emoji`
@@ -65,27 +149,33 @@ model User {
 // solo es para poder agrupar/renderizar cada tipo por separado en la UI.
 // Un usuario puede reaccionar con varios emojis distintos a la misma
 // respuesta, pero solo una vez con cada uno (@@unique) — repetir el mismo
-// quita la reacción (toggle), ver src/app/boletines/actions.ts.
+// quita la reacción (toggle), ver src/app/boletines/actions.ts. Cada grupo
+// tiene sus propias reacciones: una respuesta mandada a dos grupos se
+// reacciona por separado en cada uno.
 model Reaction {
   id         String   @id @default(cuid())
   responseId String
   response   Response @relation(fields: [responseId], references: [id], onDelete: Cascade)
+  groupId    String
+  group      Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
   userId     String
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   emoji      String
   kind       String // "emoji" | "ascii"
   createdAt  DateTime @default(now())
 
-  @@unique([responseId, userId, emoji])
+  @@unique([responseId, groupId, userId, emoji])
 }
 
-// Comentario en el hilo de una respuesta en /boletines. Hilo plano (sin
-// respuestas anidadas) — todos los comentarios de una respuesta se listan
-// en orden cronológico.
+// Comentario en el hilo de una respuesta en /boletines, dentro de un grupo:
+// una respuesta mandada a dos grupos tiene un hilo aparte en cada uno (sus
+// reacciones van con el comentario). Los hilos tienen un solo nivel.
 model Comment {
   id         String   @id @default(cuid())
   responseId String
   response   Response @relation(fields: [responseId], references: [id], onDelete: Cascade)
+  groupId    String
+  group      Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
   userId     String
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   /// Puede quedar vacío si el comentario es solo una foto.
@@ -104,6 +194,31 @@ model Comment {
   parent     Comment?  @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
   replies    Comment[] @relation("CommentReplies")
   mentions   CommentMention[]
+  /// Comentario sobre una misión cumplida (que se entregó en `response`);
+  /// null = comentario sobre la respuesta en sí.
+  missionId  String?
+  mission    MissionAssignment? @relation(fields: [missionId], references: [id], onDelete: Cascade)
+
+  @@index([responseId, groupId])
+  @@index([missionId])
+}
+
+/// Reacción a una misión cumplida en /boletines, dentro de un grupo (igual
+/// que Reaction, pero aparte para que reaccionar con el mismo emoji a un
+/// resumen y a su misión no choquen).
+model MissionReaction {
+  id        String            @id @default(cuid())
+  missionId String
+  mission   MissionAssignment @relation(fields: [missionId], references: [id], onDelete: Cascade)
+  groupId   String
+  group     Group             @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  emoji     String
+  kind      String // "emoji" | "ascii"
+  createdAt DateTime          @default(now())
+
+  @@unique([missionId, groupId, userId, emoji])
 }
 
 /// Persona etiquetada (@nombre) en un comentario.
@@ -142,7 +257,9 @@ model CommentReaction {
 // envió (NewsletterSend.contentHtml), esto deja de tener efecto: lo
 // enviado queda congelado para siempre, sin importar qué pase acá después.
 model DailyPick {
-  date            String     @id
+  groupId         String
+  group           Group      @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  date            String
   heroPhotoId     String?
   heroPhoto       HeroPhoto? @relation(fields: [heroPhotoId], references: [id], onDelete: SetNull)
   // true si el admin la eligió a mano; false si quedó fija por resolución
@@ -150,15 +267,42 @@ model DailyPick {
   heroPhotoManual Boolean    @default(false)
   phraseId        String?
   phrase          Phrase?    @relation(fields: [phraseId], references: [id], onDelete: SetNull)
+
+  @@id([groupId, date])
+}
+
+/// HOME: "¿Qué harás al llegar a tu casa?", el formato con el que nació el
+/// boletín (legacy, solo se consulta). DAY: "Resumen del día".
+enum ResponseFormat {
+  HOME
+  DAY
 }
 
 model Response {
   id        String     @id @default(cuid())
   userId    String
   user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Fecha del boletín en el que sale. En HOME es el mismo día que cuenta;
+  // en DAY el resumen es del día anterior (ver describedDate en src/lib/date.ts).
   date      String
+  format    ResponseFormat @default(HOME)
   reactions Reaction[]
   comments  Comment[]
+  groups    ResponseGroup[]
+  // Misiones entregadas junto con este resumen.
+  missions  MissionAssignment[]
+
+  // ---------- Resumen del día (format DAY) ----------
+  // atHome guarda "¿Te quedaste en tu casa?", food "¿Qué comiste?" (""
+  // si no lo contestó) y note "Algo que quieras compartir"; la foto y la
+  // frase son las mismas de siempre. Los campos solo-HOME quedan vacíos
+  // (goingOut = false, homePlan = null, etc.).
+  didToday     String? // "¿Qué hiciste hoy?"
+  wentWhere    String? // "¿A dónde fuiste?" — requerido si atHome = false
+  bestPart     String?
+  worstPart    String?
+  tomorrowPlan String?
+  mood         String? // "Estado": texto libre, puede llevar emoji
 
   // Si mandó una frase para el catálogo ese día (ver src/lib/response-phrases.ts):
   // el texto se guarda aquí para poder precargarlo al editar la respuesta, y
@@ -200,39 +344,90 @@ model Response {
   @@unique([userId, date])
 }
 
+/// Catálogo de misiones, administrado desde /admin/misiones. `text` lleva el
+/// marcador {usuario}, que se reemplaza por el nombre de la persona para
+/// quien es la misión.
+model Mission {
+  id            String   @id @default(cuid())
+  text          String
+  /// La entrega pide foto, además del texto.
+  requiresPhoto Boolean  @default(false)
+  /// Desactivada: ya no se ofrece, pero las asignaciones viejas se conservan.
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  assignments MissionAssignment[]
+}
+
+/// OFFERED: se le mostró y no ha decidido (una a la vez por persona).
+/// ACCEPTED: la tomó y la debe entregar en su resumen de `date`.
+/// COMPLETED: la entregó. FAILED: no la entregó a tiempo (suma advertencia).
+/// REJECTED: no la quiso. CANCELLED: la canceló después de aceptarla.
+enum MissionStatus {
+  OFFERED
+  ACCEPTED
+  COMPLETED
+  FAILED
+  REJECTED
+  CANCELLED
+}
+
+/// Una misión ofrecida a `userId` para `targetId`. Las reglas (límites por
+/// día, advertencias, quién puede salir como persona) viven en src/lib/missions.ts.
+model MissionAssignment {
+  id        String        @id @default(cuid())
+  missionId String
+  mission   Mission       @relation(fields: [missionId], references: [id], onDelete: Restrict)
+  userId    String
+  user      User          @relation("MissionAssignee", fields: [userId], references: [id], onDelete: Cascade)
+  targetId  String
+  target    User          @relation("MissionTarget", fields: [targetId], references: [id], onDelete: Cascade)
+  /// Fecha del resumen (Response.date) en el que se entrega: la ventana de
+  /// respuesta abierta cuando se ofreció. También es el "día" de los límites.
+  date      String
+  /// "random" (persona al azar) o "chosen" (eligió a la persona).
+  mode      String
+  status    MissionStatus @default(OFFERED)
+  /// Veces que pidió "Cambiar actividad" en esta oferta (misma persona, otra misión).
+  swaps     Int           @default(0)
+
+  // Entrega (status COMPLETED).
+  resolutionText   String?
+  photoFilename    String?
+  responseId       String?
+  response         Response? @relation(fields: [responseId], references: [id], onDelete: SetNull)
+
+  createdAt   DateTime  @default(now())
+  acceptedAt  DateTime?
+  /// Cuándo pasó a COMPLETED, FAILED, REJECTED o CANCELLED.
+  closedAt    DateTime?
+
+  reactions MissionReaction[]
+  comments  Comment[]
+
+  @@index([userId, date])
+  @@index([targetId])
+  @@index([status, date])
+  @@index([responseId])
+}
+
+// Ajustes globales. Los del boletín diario de cada grupo (saludo, hora,
+// recordatorio, portada, frase fija) viven en Group; newsletterName y
+// tagline quedan como nombre y lema del sitio.
 model Settings {
   id               Int     @id @default(1)
   newsletterName   String  @default("De regreso a casa")
   tagline          String  @default("Una nota diaria entre amigos")
-  // Saludo personalizado del boletín. Admite el marcador {nombre}, que se
-  // reemplaza por el nombre de cada destinatario al enviar.
-  greetingTemplate String  @default("Hola, {nombre}, esto es lo que estarán haciendo tus amigos el día de hoy:")
-  sendTime         String  @default("20:00")
+  // Interruptor general del envío automático de todos los grupos.
   autoSend         Boolean @default(true)
   fromName         String  @default("De regreso a casa")
   fromEmail        String  @default("")
-
-  // Recordatorio por correo 1 hora antes de sendTime, solo a quien no
-  // haya respondido todavía ese día.
-  reminderEnabled Boolean @default(true)
 
   // Si está activo, una vez que ya se mandó el boletín del día nadie puede
   // editar su respuesta de ese día (ver saveResponse en src/app/actions.ts
   // y el aviso de solo-lectura en src/app/page.tsx).
   lockResponsesAfterSend Boolean @default(true)
-
-  // Sección "hero" tipo portada de periódico, arriba de las respuestas del día.
-  heroEnabled   Boolean @default(false)
-  heroTitle     String  @default("")
-  heroParagraph String  @default("")
-  heroImageUrl  String  @default("")
-  heroLinkUrl   String  @default("")
-  heroLinkText  String  @default("Leer más")
-
-  // Frase del día que se muestra en la portada. Si está vacío, se elige
-  // una al azar entre las de Phrase (estable para esa fecha); si tiene un
-  // id, esa frase se usa siempre, sin importar el día.
-  selectedPhraseId String @default("")
 
   // Boletín de cumpleaños (ver BirthdayNewsletter): sale a birthdaySendTime
   // el día del cumpleaños de cada quien, además del boletín diario. Título,
@@ -310,15 +505,20 @@ model EngagementEmail {
   @@unique([userId, kind, key])
 }
 
-/// Un resumen semanal enviado; weekStart es el primer día ("YYYY-MM-DD")
-/// de los 7 que cubre. Hace idempotente el envío, como NewsletterSend.
+/// Un resumen semanal enviado a un grupo; weekStart es el primer día
+/// ("YYYY-MM-DD") de los 7 que cubre. Hace idempotente el envío, como
+/// NewsletterSend (uno por grupo y semana).
 model WeeklySummarySend {
-  weekStart      String   @id
+  groupId        String
+  group          Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  weekStart      String
   weekEnd        String
   sentAt         DateTime @default(now())
   recipientCount Int
   status         String // "sent" | "partial" | "failed"
   error          String?
+
+  @@id([groupId, weekStart])
 }
 
 /// Correo de "llevas N días sin responder" mandado a alguien un día dado.
@@ -333,7 +533,7 @@ model InactivityNudge {
   @@unique([userId, date])
 }
 
-// Frases cortas para la portada del boletín (ver Settings.selectedPhraseId).
+// Frases cortas para la portada del boletín (ver Group.selectedPhraseId).
 // El admin puede darlas de alta a mano en /admin/frases (sin autor/fecha),
 // o pueden venir del formulario diario (ver src/lib/response-phrases.ts),
 // en cuyo caso quedan con date = el día en que se mandaron y su autor.
@@ -348,7 +548,7 @@ model Phrase {
 }
 
 // Fotos disponibles en public/IMG para la portada del boletín. Si el admin
-// no fija Settings.heroImageUrl a mano, se usa una de acá: primero se busca
+// no fija Group.heroImageUrl a mano, se usa una de acá: primero se busca
 // una con `date` igual al día del envío, si no hay, se elige una al azar
 // (pero estable para esa fecha, ver src/lib/hero-photos.ts). Las que suben
 // los usuarios desde el formulario diario (ver src/lib/response-photos.ts)
@@ -365,19 +565,28 @@ model HeroPhoto {
   birthdayNewsletters BirthdayNewsletter[]
 }
 
-// Recordatorio enviado 1 hora antes de Settings.sendTime a quien no había
-// respondido todavía. Único por fecha, igual que NewsletterSend, para no
-// mandarlo dos veces el mismo día.
+// Recordatorios a quien no había respondido todavía: 2 h, 1 h y 30 min
+// antes de Group.sendTime (ver REMINDER_OFFSETS en src/lib/send-reminder.ts).
+// Único por grupo, fecha y anticipación, para no mandar dos veces el mismo.
 model ReminderSend {
   id             String   @id @default(cuid())
-  date           String   @unique
+  groupId        String
+  group          Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  date           String
+  /// Minutos antes del envío (120, 60 o 30).
+  minutesBefore  Int      @default(60)
   sentAt         DateTime @default(now())
   recipientCount Int
+
+  @@unique([groupId, date, minutesBefore])
 }
 
+/// Boletín diario de un grupo enviado un día (uno por grupo y fecha).
 model NewsletterSend {
   id             String   @id @default(cuid())
-  date           String   @unique
+  groupId        String
+  group          Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  date           String
   sentAt         DateTime @default(now())
   recipientCount Int
   responseCount  Int
@@ -405,20 +614,27 @@ model NewsletterSend {
   // en /boletines para miembros (ver src/app/boletines/page.tsx), pero
   // sigue visible/reenviable desde el panel admin.
   archived Boolean @default(false)
+
+  @@unique([groupId, date])
+  @@index([date])
 }
 
-// Boletín de cumpleaños: uno por persona y fecha, aparte del boletín diario
-// (NewsletterSend es único por fecha y ese día también sale el diario). La
+// Boletín de cumpleaños: uno por persona, grupo y fecha, aparte del diario
+// (aparte de los NewsletterSend de ese día, que son por grupo). La
 // fila nace al resolver la foto de portada (vista previa del admin o envío)
 // y hace de DailyPick de esta edición: la foto sale de las que subió quien
 // cumple años y queda fija para que la vista previa y el envío coincidan.
 // Al enviarse, sentAt y el snapshot (contentHtml/contentText/heroJson)
 // quedan congelados, igual que en NewsletterSend.
 model BirthdayNewsletter {
-  id     String @id @default(cuid())
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  date   String // "YYYY-MM-DD", el día del cumpleaños en que sale
+  id      String @id @default(cuid())
+  userId  String
+  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Sale una edición por cada grupo de quien cumple años, solo a ese grupo
+  // y con sus momentos de ese grupo.
+  groupId String
+  group   Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  date    String // "YYYY-MM-DD", el día del cumpleaños en que sale
 
   heroPhotoId     String?
   heroPhoto       HeroPhoto? @relation(fields: [heroPhotoId], references: [id], onDelete: SetNull)
@@ -442,7 +658,7 @@ model BirthdayNewsletter {
 
   createdAt DateTime @default(now())
 
-  @@unique([userId, date])
+  @@unique([userId, groupId, date])
 }
 
 // Correo suelto que el admin manda desde /admin/comunicaciones — distinto
@@ -457,7 +673,8 @@ model Communication {
   bodyText String
 
   // "all" = todos los usuarios activos; "selected" = solo los de
-  // recipientIds (ids de User en JSON, ej. '["id1","id2"]').
+  // recipientIds (ids de User en JSON, ej. '["id1","id2"]'); "groups" = los
+  // miembros activos de los grupos cuyos ids van en recipientIds.
   audience     String
   recipientIds String @default("")
 

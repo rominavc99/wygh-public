@@ -41,6 +41,7 @@ src/
     perfil/                      # Autoservicio: apodo y fecha de cumpleaños
     mis-respuestas/              # Historial propio
     respuesta-extraordinaria/    # Responder un día pasado, con un privilegio de un solo uso del admin
+    grupos/unirse/[token]/       # Unirse a un grupo con su enlace de invitación
     boletines/                   # Archivo de boletines enviados, interactivo (reacciones, comentarios)
     IMG/respuestas/[filename]/   # Sirve las fotos de respuestas, solo con sesión iniciada
     error.tsx, global-error.tsx, not-found.tsx
@@ -78,6 +79,7 @@ src/
     response-photos.ts           # Fotos de respuestas: validar, guardar, borrar
     save-response.ts             # Guardado común de una respuesta (diaria y extraordinaria)
     extraordinary.ts, extraordinary-email.ts       # Respuestas extraordinarias: permisos y avisos
+    groups.ts, group-email.ts                      # Grupos: membresía, a qué grupos va cada respuesta, invitaciones
     prepare-photo.ts             # (navegador) Reduce la foto y la pasa a base64 antes de subirla
     reactions.ts                 # Agrupa reacciones por emoji con quién reaccionó
     emoji-data.ts                # Emojis rápidos, selector y emoticones ascii
@@ -135,15 +137,33 @@ prisma/schema.prisma             # Modelo de datos
 
 ## La respuesta diaria
 
-1. En `/` la persona llena el formulario (`src/app/response-form.tsx`).
-   Hay cuatro flujos — llega a la hora normal, llega tarde, no llega, se
-   quedó en casa — y cada uno pide campos distintos (reglas en
-   `src/lib/response-schema.ts`). Opcionalmente agrega una foto con
-   descripción y una frase para el catálogo.
+1. En `/` la persona llena el **Resumen del día** (`src/app/response-form.tsx`):
+   qué hizo, si se quedó en casa (y si no, a dónde fue), lo mejor y lo
+   peor del día, qué cree que hará después, algo que compartir, estado
+   (texto con emoji opcional), foto con descripción y frase del día. Las
+   reglas viven en `src/lib/response-schema.ts`. Hasta octubre de 2026 el
+   formulario era "¿Qué harás al llegar a tu casa?" (`format = HOME`):
+   esas respuestas se conservan y se siguen viendo, pero ya no se crean.
+   - **De qué día habla**: `Response.date` es la fecha del boletín en el
+     que sale; el resumen es del día anterior. `openResponseDate()`
+     (`src/lib/groups.ts`) da la fecha abierta: el resumen de hoy se
+     escribe desde que sale el boletín de hoy (12:00) hasta que sale el de
+     mañana. Así el recordatorio, el bloqueo tras el envío, las rachas y
+     las respuestas extraordinarias funcionan igual que antes.
+   - Si tiene **misiones** aceptadas para esa fecha, el formulario las
+     muestra para entregarlas (ver "Misiones").
 2. Se guarda con la Server Action `saveResponse` (`src/app/actions.ts`)
    como `upsert` en `Response`, única por `(userId, date)`.
-3. Si `Settings.lockResponsesAfterSend` está activo, una vez enviado el
-   boletín del día ya no se puede editar.
+3. **A qué grupos va** (`ResponseGroup`): quien está en dos o más grupos
+   activos ve "¿A qué grupos la mandas?" con todos marcados por defecto;
+   con un solo grupo no se pregunta y va ahí. Quien no está en ningún
+   grupo ve un aviso en vez del formulario. Las opciones salen de
+   `responseGroupOptions()` (`src/lib/groups.ts`).
+4. Si `Settings.lockResponsesAfterSend` está activo (`responseLock()`): la
+   respuesta es una sola para todos sus grupos, así que en cuanto sale el
+   boletín de alguno de ellos ya no se puede editar. Sin respuesta, se
+   puede responder mientras quede algún grupo sin enviar, y solo a esos
+   (los que ya salieron se muestran deshabilitados).
 
 ### Respuestas extraordinarias (`/respuesta-extraordinaria`)
 
@@ -213,17 +233,64 @@ el formulario cada vez que se despacha esa acción, aunque el resultado
 sea un error de validación. Se llama la acción a mano desde `onSubmit`,
 lo que además permite atrapar fallos de red.
 
+## Misiones (`/misiones`, `src/lib/missions.ts`)
+
+Actividades pequeñas para alguien del grupo ("Consigue una foto de una
+comida que le guste mucho a {usuario}"). Cada oferta es un
+`MissionAssignment`. En `/admin/misiones` hay dos pestañas: Seguimiento
+(activas por persona, tablas por persona y por día, detalle con filtros
+de estado, persona y fechas, y quitar advertencias) y Catálogo
+(`Mission`).
+
+- Se pide **al azar** (persona y actividad sorpresa) o **para alguien**
+  (se elige la persona, la actividad sigue al azar). "Cambiar actividad"
+  mantiene a la persona.
+- Personas posibles (`eligibleTargets`): activas, en un grupo activo en
+  común, sin baneo, sin `missionOptOut` y que entraron al sitio en los
+  últimos 3 días (al azar) o 7 (elegida).
+- Límites por "día" (la fecha del resumen en que se entrega): 3
+  aceptadas (las canceladas e incumplidas cuentan), 3 rechazos, 3 cambios
+  por oferta; 2 cancelaciones por semana. Cancelar no es advertencia, pero
+  avisa a los admins.
+- Se entregan en el formulario del resumen (`prepareMissionDeliveries`):
+  con texto queda `COMPLETED` y ligada a la respuesta; vacía sigue
+  `ACCEPTED`. Si la misión pide foto, sin foto no se acepta.
+- El worker corre `expireMissions()` cada minuto: lo aceptado cuya fecha
+  ya quedó atrás pasa a `FAILED` y suma advertencia (correo + aviso); a
+  las 3, una semana fuera (`missionBanUntil`), y al terminar vuelve a 0.
+- En el boletín salen como "Misiones cumplidas": un índice corto arriba y
+  el detalle al final, solo en los grupos a los que se mandó el resumen y
+  donde también está la persona.
+- En `/boletines` cada misión cumplida tiene sus reacciones
+  (`MissionReaction`, por grupo) y su hilo de comentarios (`Comment` con
+  `missionId`, colgado del resumen en que se entregó).
+- El resumen semanal (`src/lib/weekly-report.ts`) suma las misiones
+  cumplidas, quién cumplió más y a quién le hicieron más, y "Lo mejor y lo
+  peor de la semana": las mejores y peores partes de los resúmenes con más
+  reacciones y comentarios.
+
+## Navegación y perfil
+
+- `src/app/app-nav.tsx` (montada en `layout.tsx` solo con sesión): en el
+  celular, barra de tareas abajo (Hoy, Boletines, Misiones, Perfil) y
+  encabezado con la campana; desde 768px, menú lateral "Inicio".
+- `/perfil` es el propio (sus ajustes, en `/perfil/ajustes`) y `/perfil/<id>` el de otra
+  persona: números, estado e historial en pestañas (Resúmenes, Al llegar
+  a casa, Misiones). Quien no es la persona solo ve lo mandado a grupos en
+  común cuyo boletín ya salió (`src/lib/profile.ts`). `/mis-respuestas`
+  redirige aquí.
+
 ## Envíos programados (`worker.ts`)
 
 Proceso PM2 aparte que cada minuto revisa:
 
 | Qué | Cuándo | Función | Idempotencia |
 |---|---|---|---|
-| Boletín diario | `Settings.sendTime` (si `autoSend`) | `sendDailyNewsletter()` | `NewsletterSend.date` |
-| Recordatorio a quien no ha respondido | 1 h antes de `sendTime` (si `reminderEnabled`) | `sendReminderIfNeeded()` | `ReminderSend.date` |
-| Boletín de cumpleaños | `Settings.birthdaySendTime` (si `birthdayEnabled`) | `sendBirthdayNewsletter()` | `BirthdayNewsletter(userId, date)` |
+| Boletín diario de cada grupo | `Group.sendTime` de cada grupo no suspendido (si `Settings.autoSend`) | `sendDailyNewsletter(groupId, date)` | `NewsletterSend(groupId, date)` |
+| Recordatorios a quien no ha respondido | 2 h, 1 h y 30 min antes del `sendTime` de cada grupo (si su `reminderEnabled`); solo a sus miembros sin respuesta para ese boletín | `sendReminderIfNeeded(groupId, date, minutesBefore)` | `ReminderSend(groupId, date, minutesBefore)` |
+| Boletín de cumpleaños (una edición por grupo de quien cumple) | `Settings.birthdaySendTime` (si `birthdayEnabled`) | `sendBirthdayNewsletter(userId, groupId, date)` | `BirthdayNewsletter(userId, groupId, date)` |
 | Comunicaciones programadas | cuando llega su `scheduledAt` | `sendCommunicationNow()` + aviso a admins | `Communication.status` |
-| Resumen semanal de participación | `weeklySummaryDay` a las `weeklySummaryTime` (si `weeklySummaryEnabled`) | `sendWeeklySummary()` | `WeeklySummarySend.weekStart` |
+| Resumen semanal de participación (uno por grupo, a sus miembros) | `weeklySummaryDay` a las `weeklySummaryTime` (si `weeklySummaryEnabled`) | `sendWeeklySummary()` | `WeeklySummarySend(groupId, weekStart)` |
 | Correo a quien lleva N días sin responder | `inactivityNudgeTime` (si `inactivityNudgeEnabled`) | `sendInactivityNudges()` | `InactivityNudge(userId, date)` |
 | Correos especiales (racha, "hace un año", aniversario, resumen anual el 1 de enero) | `extrasEmailTime` (cada uno con su interruptor) | `sendDailyExtras()` | `EngagementEmail(userId, kind, key)` |
 
@@ -235,13 +302,18 @@ Todo se manda solo a usuarios activos.
 todo a partir de los **días cerrados**: los días con fila en
 `NewsletterSend`, que son en los que se esperaba respuesta. El día de hoy
 no cuenta hasta que sale el boletín, un día sin boletín no se le "debe" a
-nadie, y a cada persona solo le cuentan los días desde su alta
-(`User.createdAt`). Los "días seguidos sin responder" son los días
-cerrados desde su última respuesta.
+nadie, y a cada persona solo le cuentan los días en que salió el boletín
+de alguno de sus grupos, desde que entró a ese grupo
+(`GroupMember.joinedAt`, nunca antes de `User.createdAt`). Los "días
+seguidos sin responder" son sus días cerrados desde su última respuesta.
+Con `groupId` todo se limita a un grupo (sus miembros, días, respuestas,
+reacciones y comentarios): así se filtra `/admin/estadisticas` y se arma
+el resumen semanal de cada grupo.
 
-- **Resumen semanal**: los 7 días anteriores al día de envío; mismo
-  contenido para todos (participación del grupo, destacados y días
-  respondidos por persona) más una línea personal.
+- **Resumen semanal**: uno por grupo, a sus miembros, con los 7 días
+  anteriores al día de envío de ese grupo; mismo contenido para todo el
+  grupo (participación, destacados y días respondidos por persona) más una
+  línea personal. Quien está en varios grupos recibe uno de cada uno.
 - **Resumen semanal, dos versiones**: los miembros reciben participación,
   destacados, top 3 de quién responde/reacciona/comenta más y menos, y las
   listas de quien lleva `inactivityNudgeDays` días o más sin responder y
@@ -268,25 +340,29 @@ cerrados desde su última respuesta.
 
 ## El boletín diario
 
-`buildNewsletter()` (`src/lib/newsletter.ts`) arma el HTML y el texto
-plano:
+Cada grupo tiene su propio boletín: `buildNewsletter(groupId, date)`
+(`src/lib/newsletter.ts`) arma el HTML y el texto plano solo con las
+respuestas mandadas a ese grupo, con su nombre, lema y saludo, y se le
+manda solo a sus miembros activos.
 
-- **Portada** (opcional, `/admin/ajustes`): título, párrafo, foto, frase
-  del día y un enlace.
-  - La foto y la frase del día se resuelven una vez y quedan fijas en
-    `DailyPick` (ver `hero-photos.ts` y `phrases.ts`). Prioridad: la que
+- **Portada** (opcional, en `/admin/grupos/[id]`): título, párrafo, foto,
+  frase del día y un enlace.
+  - La foto y la frase del día se resuelven una vez por grupo y quedan
+    fijas en `DailyPick` (ver `hero-photos.ts` y `phrases.ts`). Salen del
+    catálogo y de las respuestas mandadas a ese grupo, nunca de las de
+    otro. Prioridad: la que
     eligió el admin, luego la que ya quedó fija, luego una "programada"
     para ese día, y si no, una al azar estable con `pickStable()`
     evitando repetir el evento del día anterior. Así la vista previa y el
     envío coinciden y la portada no cambia sola a media tarde.
   - Desde `/admin/boletin` se pueden elegir a mano o re-rolar.
-- **Una tarjeta por respuesta del día**: avatar, nombre a mostrar
+- **Una tarjeta por respuesta del día mandada al grupo**: avatar, nombre a mostrar
   (`displayName()`), plan, comida, nota y foto.
 - El saludo se personaliza por destinatario (`personalizeGreeting()`).
 
 Al enviarse, el contenido queda **congelado** en `NewsletterSend`
 (`contentHtml`, `contentText`, `heroJson`): `/boletines` y el panel lo
-muestran tal cual salió, aunque los Ajustes cambien después.
+muestran tal cual salió, aunque los ajustes del grupo cambien después.
 
 `renderEmailShell()`, `renderHero()`, `responseDetailsHtml()` y
 `deliverToActiveUsers()` son piezas compartidas con el boletín de
@@ -306,8 +382,11 @@ oscuro por cliente sin que se pida explícitamente.
 Cada quien registra su fecha en `/perfil`, o en el aviso que aparece en
 `/` mientras no la tenga y no haya elegido "Prefiero no decirlo". A
 `Settings.birthdaySendTime` (09:00 por defecto) de su cumpleaños, el
-worker manda a todos los activos un boletín extra
-(`src/lib/birthday-newsletter.ts` + `src/lib/send-birthday.ts`):
+worker manda un boletín extra a cada uno de sus grupos (no suspendidos),
+solo a los miembros de ese grupo y con el nombre y lema del grupo
+(`src/lib/birthday-newsletter.ts` + `src/lib/send-birthday.ts`). Cada
+edición usa solo fotos y momentos (con sus reacciones y comentarios) de
+ese grupo:
 
 - Mismo marco y remitente que el diario.
 - Portada con una foto subida por quien cumple años (fija para ese día,
@@ -324,10 +403,19 @@ worker manda a todos los activos un boletín extra
 
 ## `/boletines`: archivo interactivo
 
-- Lista de boletines enviados (diarios y de cumpleaños), sin los que el
-  admin archivó.
+- Por grupo: cada quien ve los de sus grupos (también los de un grupo en
+  pausa) y elige el grupo arriba si está en varios; un admin ve todos.
+  `?grupo=<id>` elige el grupo (si no es tuyo, se usa el primero tuyo).
+- Lista de boletines enviados del grupo (diarios y de cumpleaños), sin
+  los que el admin archivó.
+- Reacciones y comentarios son del grupo en que se ven: una respuesta
+  mandada a dos grupos tiene reacciones e hilo aparte en cada uno. Las
+  acciones revisan que tengas acceso al grupo y que la respuesta se haya
+  mandado ahí (`canInteractInGroup()` en `src/lib/groups.ts`); `@` solo
+  sugiere y etiqueta a miembros del grupo, y los avisos solo le llegan a
+  miembros y llevan a ese grupo.
 - Cada boletín muestra la portada congelada y las respuestas de ese día
-  como tarjetas (`response-card.tsx`) donde se puede:
+  mandadas a ese grupo como tarjetas (`response-card.tsx`) donde se puede:
   - **Reaccionar** a la respuesta o a cualquier comentario
     (`reaction-bar.tsx`): emojis rápidos, selector completo y emoticones
     ascii. Repetir la misma reacción la quita.
@@ -360,8 +448,8 @@ worker manda a todos los activos un boletín extra
 
 ## Panel de administración (`/admin/*`)
 
-Pestañas: Estadísticas, Respuestas, Usuarios, Boletín, Fotos, Frases,
-Cumpleaños, Envíos, Comunicaciones, Ajustes.
+Pestañas: Estadísticas, Respuestas, Usuarios, Grupos, Boletín, Fotos,
+Frases, Cumpleaños, Envíos, Comunicaciones, Ajustes.
 
 - **Estadísticas**: dashboard de participación por periodo (7/30/90
   días o todo): participación diaria y por día de la semana, ranking de
@@ -373,24 +461,35 @@ Cumpleaños, Envíos, Comunicaciones, Ajustes.
   activar/desactivar. El `<select>` de rol se deshabilita en tu propia
   fila para no quitarte el admin por accidente; como un `<select
   disabled>` no viaja en el `FormData`, se reemplaza por un
-  `<input type="hidden">` con el rol actual.
-- **Boletín**: vista previa exacta del día (o de cualquier fecha), elegir
-  o re-rolar foto y frase, envío manual o reenvío.
+  `<input type="hidden">` con el rol actual. Al dar de alta a alguien se
+  eligen sus grupos (vienen marcados los que no están en pausa), y cada
+  fila muestra a qué grupos pertenece.
+- **Grupos** (`/admin/grupos`): crear, renombrar y suspender (pausa)
+  grupos, los ajustes del boletín de cada uno (lema, saludo, hora,
+  recordatorio, portada, frase fija), agregar o quitar miembros a mano, y el enlace para unirse
+  (crear, copiar, regenerar o desactivar). "Invitar amigos" manda a los
+  usuarios activos que se elijan un correo con ese enlace
+  (`sendGroupInvites()` en `src/lib/groups.ts`). El enlace lleva a
+  `/grupos/unirse/<token>`, que pide sesión (no crea cuentas) y une con
+  un botón, no al abrir la página, porque algunos correos abren los
+  enlaces solos para revisarlos. Un grupo en pausa no admite gente nueva.
+- **Boletín**: vista previa exacta del día de un grupo (o de cualquier
+  fecha), elegir o re-rolar foto y frase, envío manual o reenvío.
 - **Fotos**: catálogo sincronizado con `public/IMG` más las fotos de
   respuestas; cada una puede llevar descripción y fecha programada.
 - **Frases**: catálogo de frases; las que vienen de respuestas llegan con
-  autor y fecha.
+  autor y fecha. Una frase se puede fijar en uno o varios grupos.
 - **Cumpleaños**: próximos cumpleaños, vista previa/envío por persona y
   ajustes del boletín de cumpleaños.
-- **Envíos**: historial de `NewsletterSend`; archivar oculta un boletín
-  en `/boletines` sin borrarlo.
+- **Envíos**: historial de `NewsletterSend` de todos los grupos;
+  archivar oculta un boletín en `/boletines` sin borrarlo.
 - **Comunicaciones**: correos sueltos con editor de texto enriquecido (el
-  HTML se sanea en `rich-text.ts`), a todos o a personas elegidas, de
-  inmediato o programados. De los programados, los admins reciben un
+  HTML se sanea en `rich-text.ts`), a todos, a personas elegidas o a los
+  miembros de ciertos grupos (`audience = "groups"`), de inmediato o
+  programados. De los programados, los admins reciben un
   correo con el resultado.
-- **Ajustes**: nombre, lema, saludo, horarios, envío automático,
-  recordatorio, bloqueo tras el envío, remitente, portada, resumen
-  semanal, correo de inactividad y correos especiales (con vista previa
+- **Ajustes**: nombre y lema del sitio, envío automático (todos los
+  grupos), bloqueo tras el envío, remitente, resumen semanal, correo de inactividad y correos especiales (con vista previa
   de cada uno en `/admin/estadisticas/vista-previa?correo=…`). Cada
   correo tiene "Enviar ahora" (`src/lib/send-now.ts`): lo manda en el
   momento a quienes les tocaría hoy, mostrando antes la lista, y no lo
@@ -402,8 +501,9 @@ Cumpleaños, Envíos, Comunicaciones, Ajustes.
 
 ## Autoservicio del usuario
 
-- **`/perfil`**: nombre y correo de solo lectura, apodo (`username`) y
-  fecha de cumpleaños.
+- **`/perfil`**: nombre y correo de solo lectura, apodo (`username`),
+  fecha de cumpleaños y "Mis grupos", donde cada quien puede salirse de un
+  grupo (volver requiere el enlace de invitación o a un admin).
 - **`/mis-respuestas`**: historial propio, día por día.
 - **`/notificaciones`**: copia de cada correo que se le mandó a la persona
   (boletín, cumpleaños, recordatorio, reacciones/comentarios,
