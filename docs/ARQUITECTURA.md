@@ -137,11 +137,21 @@ prisma/schema.prisma             # Modelo de datos
 
 ## La respuesta diaria
 
-1. En `/` la persona llena el formulario (`src/app/response-form.tsx`).
-   Hay cuatro flujos — llega a la hora normal, llega tarde, no llega, se
-   quedó en casa — y cada uno pide campos distintos (reglas en
-   `src/lib/response-schema.ts`). Opcionalmente agrega una foto con
-   descripción y una frase para el catálogo.
+1. En `/` la persona llena el **Resumen del día** (`src/app/response-form.tsx`):
+   qué hizo, si se quedó en casa (y si no, a dónde fue), lo mejor y lo
+   peor del día, qué cree que hará después, algo que compartir, estado
+   (texto con emoji opcional), foto con descripción y frase del día. Las
+   reglas viven en `src/lib/response-schema.ts`. Hasta octubre de 2026 el
+   formulario era "¿Qué harás al llegar a tu casa?" (`format = HOME`):
+   esas respuestas se conservan y se siguen viendo, pero ya no se crean.
+   - **De qué día habla**: `Response.date` es la fecha del boletín en el
+     que sale; el resumen es del día anterior. `openResponseDate()`
+     (`src/lib/groups.ts`) da la fecha abierta: el resumen de hoy se
+     escribe desde que sale el boletín de hoy (12:00) hasta que sale el de
+     mañana. Así el recordatorio, el bloqueo tras el envío, las rachas y
+     las respuestas extraordinarias funcionan igual que antes.
+   - Si tiene **misiones** aceptadas para esa fecha, el formulario las
+     muestra para entregarlas (ver "Misiones").
 2. Se guarda con la Server Action `saveResponse` (`src/app/actions.ts`)
    como `upsert` en `Response`, única por `(userId, date)`.
 3. **A qué grupos va** (`ResponseGroup`): quien está en dos o más grupos
@@ -222,6 +232,50 @@ El formulario no usa `<form action={...}>` a propósito: React 19 resetea
 el formulario cada vez que se despacha esa acción, aunque el resultado
 sea un error de validación. Se llama la acción a mano desde `onSubmit`,
 lo que además permite atrapar fallos de red.
+
+## Misiones (`/misiones`, `src/lib/missions.ts`)
+
+Actividades pequeñas para alguien del grupo ("Consigue una foto de una
+comida que le guste mucho a {usuario}"). El catálogo (`Mission`) se
+administra en `/admin/misiones`; cada oferta es un `MissionAssignment`.
+
+- Se pide **al azar** (persona y actividad sorpresa) o **para alguien**
+  (se elige la persona, la actividad sigue al azar). "Cambiar actividad"
+  mantiene a la persona.
+- Personas posibles (`eligibleTargets`): activas, en un grupo activo en
+  común, sin baneo, sin `missionOptOut` y que entraron al sitio en los
+  últimos 3 días (al azar) o 7 (elegida).
+- Límites por "día" (la fecha del resumen en que se entrega): 3
+  aceptadas (las canceladas e incumplidas cuentan), 3 rechazos, 3 cambios
+  por oferta; 2 cancelaciones por semana. Cancelar no es advertencia, pero
+  avisa a los admins.
+- Se entregan en el formulario del resumen (`prepareMissionDeliveries`):
+  con texto queda `COMPLETED` y ligada a la respuesta; vacía sigue
+  `ACCEPTED`. Si la misión pide foto, sin foto no se acepta.
+- El worker corre `expireMissions()` cada minuto: lo aceptado cuya fecha
+  ya quedó atrás pasa a `FAILED` y suma advertencia (correo + aviso); a
+  las 3, una semana fuera (`missionBanUntil`), y al terminar vuelve a 0.
+- En el boletín salen como "Misiones cumplidas": un índice corto arriba y
+  el detalle al final, solo en los grupos a los que se mandó el resumen y
+  donde también está la persona.
+- En `/boletines` cada misión cumplida tiene sus reacciones
+  (`MissionReaction`, por grupo) y su hilo de comentarios (`Comment` con
+  `missionId`, colgado del resumen en que se entregó).
+- El resumen semanal (`src/lib/weekly-report.ts`) suma las misiones
+  cumplidas, quién cumplió más y a quién le hicieron más, y "Lo mejor y lo
+  peor de la semana": las mejores y peores partes de los resúmenes con más
+  reacciones y comentarios.
+
+## Navegación y perfil
+
+- `src/app/app-nav.tsx` (montada en `layout.tsx` solo con sesión): en el
+  celular, barra de tareas abajo (Hoy, Boletines, Misiones, Perfil) y
+  encabezado con la campana; desde 768px, menú lateral "Inicio".
+- `/perfil` es el propio (sus ajustes, en `/perfil/ajustes`) y `/perfil/<id>` el de otra
+  persona: números, estado e historial en pestañas (Resúmenes, Al llegar
+  a casa, Misiones). Quien no es la persona solo ve lo mandado a grupos en
+  común cuyo boletín ya salió (`src/lib/profile.ts`). `/mis-respuestas`
+  redirige aquí.
 
 ## Envíos programados (`worker.ts`)
 

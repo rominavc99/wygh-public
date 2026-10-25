@@ -11,6 +11,7 @@ const TABS = [
   { href: "/admin/boletin", label: "Boletín", icon: "💌" },
   { href: "/admin/fotos", label: "Fotos", icon: "🖼️" },
   { href: "/admin/frases", label: "Frases", icon: "💭" },
+  { href: "/admin/misiones", label: "Misiones", icon: "🎯" },
   { href: "/admin/cumpleanos", label: "Cumpleaños", icon: "🎂" },
   { href: "/admin/envios", label: "Envíos", icon: "📮" },
   { href: "/admin/comunicaciones", label: "Comunicaciones", icon: "📣" },

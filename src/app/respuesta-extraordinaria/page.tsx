@@ -47,9 +47,6 @@ export default async function RespuestaExtraordinariaPage() {
               👑 Respuesta extraordinaria
             </h1>
           </div>
-          <Link href="/" className="chip chip-blue">
-            ← Volver al formulario
-          </Link>
         </div>
 
         <div className="win">
@@ -59,7 +56,7 @@ export default async function RespuestaExtraordinariaPage() {
             <div className="win-btns">
               <div className="win-btn">_</div>
               <div className="win-btn">□</div>
-              <Link href="/" className="win-btn close" aria-label="Volver al formulario">
+              <Link href="/" className="win-btn close" aria-label="Volver a Hoy">
                 ×
               </Link>
             </div>
@@ -94,6 +91,7 @@ export default async function RespuestaExtraordinariaPage() {
                   action={saveExtraordinaryResponse}
                   dateMax={addDaysLocal(todayLocalDate(), -1)}
                   groups={formGroups}
+                  dayWord="ese día"
                 />
               </div>
             ) : available.length ? (
@@ -112,6 +110,7 @@ export default async function RespuestaExtraordinariaPage() {
                   action={saveExtraordinaryResponse}
                   dateOptions={available.map((g) => ({ value: g.date, label: capitalize(formatLocalDate(g.date)) }))}
                   groups={formGroups}
+                  dayWord="ese día"
                 />
               </div>
             ) : (

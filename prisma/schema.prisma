@@ -59,6 +59,17 @@ model User {
   extraordinaryGrants      ExtraordinaryGrant[] @relation("ExtraordinaryGrantUser")
   extraordinaryGrantsGiven ExtraordinaryGrant[] @relation("ExtraordinaryGrantAdmin")
   groupMemberships GroupMember[]
+
+  // Misiones (ver src/lib/missions.ts). Cada incumplimiento suma una
+  // advertencia; a las 3 queda fuera de las misiones hasta missionBanUntil
+  // (ni puede aceptar ni sale como opción) y al terminar vuelve a 0.
+  missionStrikes   Int       @default(0)
+  missionBanUntil  DateTime?
+  /// Pidió desde /perfil no salir nunca como persona de una misión.
+  missionOptOut    Boolean   @default(false)
+  missions         MissionAssignment[] @relation("MissionAssignee")
+  missionsForMe    MissionAssignment[] @relation("MissionTarget")
+  missionReactions MissionReaction[]
 }
 
 /// Grupo de amigos con su propio boletín (ver src/lib/groups.ts). Solo los
@@ -107,6 +118,7 @@ model Group {
   comments    Comment[]
   birthdayNewsletters BirthdayNewsletter[]
   weeklySummaries     WeeklySummarySend[]
+  missionReactions    MissionReaction[]
 }
 
 model GroupMember {
@@ -182,8 +194,31 @@ model Comment {
   parent     Comment?  @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
   replies    Comment[] @relation("CommentReplies")
   mentions   CommentMention[]
+  /// Comentario sobre una misión cumplida (que se entregó en `response`);
+  /// null = comentario sobre la respuesta en sí.
+  missionId  String?
+  mission    MissionAssignment? @relation(fields: [missionId], references: [id], onDelete: Cascade)
 
   @@index([responseId, groupId])
+  @@index([missionId])
+}
+
+/// Reacción a una misión cumplida en /boletines, dentro de un grupo (igual
+/// que Reaction, pero aparte para que reaccionar con el mismo emoji a un
+/// resumen y a su misión no choquen).
+model MissionReaction {
+  id        String            @id @default(cuid())
+  missionId String
+  mission   MissionAssignment @relation(fields: [missionId], references: [id], onDelete: Cascade)
+  groupId   String
+  group     Group             @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  emoji     String
+  kind      String // "emoji" | "ascii"
+  createdAt DateTime          @default(now())
+
+  @@unique([missionId, groupId, userId, emoji])
 }
 
 /// Persona etiquetada (@nombre) en un comentario.
@@ -236,14 +271,38 @@ model DailyPick {
   @@id([groupId, date])
 }
 
+/// HOME: "¿Qué harás al llegar a tu casa?", el formato con el que nació el
+/// boletín (legacy, solo se consulta). DAY: "Resumen del día".
+enum ResponseFormat {
+  HOME
+  DAY
+}
+
 model Response {
   id        String     @id @default(cuid())
   userId    String
   user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Fecha del boletín en el que sale. En HOME es el mismo día que cuenta;
+  // en DAY el resumen es del día anterior (ver describedDate en src/lib/date.ts).
   date      String
+  format    ResponseFormat @default(HOME)
   reactions Reaction[]
   comments  Comment[]
   groups    ResponseGroup[]
+  // Misiones entregadas junto con este resumen.
+  missions  MissionAssignment[]
+
+  // ---------- Resumen del día (format DAY) ----------
+  // atHome guarda "¿Te quedaste en tu casa?", food "¿Qué comiste?" (""
+  // si no lo contestó) y note "Algo que quieras compartir"; la foto y la
+  // frase son las mismas de siempre. Los campos solo-HOME quedan vacíos
+  // (goingOut = false, homePlan = null, etc.).
+  didToday     String? // "¿Qué hiciste hoy?"
+  wentWhere    String? // "¿A dónde fuiste?" — requerido si atHome = false
+  bestPart     String?
+  worstPart    String?
+  tomorrowPlan String?
+  mood         String? // "Estado": texto libre, puede llevar emoji
 
   // Si mandó una frase para el catálogo ese día (ver src/lib/response-phrases.ts):
   // el texto se guarda aquí para poder precargarlo al editar la respuesta, y
@@ -283,6 +342,74 @@ model Response {
   updatedAt DateTime @updatedAt
 
   @@unique([userId, date])
+}
+
+/// Catálogo de misiones, administrado desde /admin/misiones. `text` lleva el
+/// marcador {usuario}, que se reemplaza por el nombre de la persona para
+/// quien es la misión.
+model Mission {
+  id            String   @id @default(cuid())
+  text          String
+  /// La entrega pide foto, además del texto.
+  requiresPhoto Boolean  @default(false)
+  /// Desactivada: ya no se ofrece, pero las asignaciones viejas se conservan.
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  assignments MissionAssignment[]
+}
+
+/// OFFERED: se le mostró y no ha decidido (una a la vez por persona).
+/// ACCEPTED: la tomó y la debe entregar en su resumen de `date`.
+/// COMPLETED: la entregó. FAILED: no la entregó a tiempo (suma advertencia).
+/// REJECTED: no la quiso. CANCELLED: la canceló después de aceptarla.
+enum MissionStatus {
+  OFFERED
+  ACCEPTED
+  COMPLETED
+  FAILED
+  REJECTED
+  CANCELLED
+}
+
+/// Una misión ofrecida a `userId` para `targetId`. Las reglas (límites por
+/// día, advertencias, quién puede salir como persona) viven en src/lib/missions.ts.
+model MissionAssignment {
+  id        String        @id @default(cuid())
+  missionId String
+  mission   Mission       @relation(fields: [missionId], references: [id], onDelete: Restrict)
+  userId    String
+  user      User          @relation("MissionAssignee", fields: [userId], references: [id], onDelete: Cascade)
+  targetId  String
+  target    User          @relation("MissionTarget", fields: [targetId], references: [id], onDelete: Cascade)
+  /// Fecha del resumen (Response.date) en el que se entrega: la ventana de
+  /// respuesta abierta cuando se ofreció. También es el "día" de los límites.
+  date      String
+  /// "random" (persona al azar) o "chosen" (eligió a la persona).
+  mode      String
+  status    MissionStatus @default(OFFERED)
+  /// Veces que pidió "Cambiar actividad" en esta oferta (misma persona, otra misión).
+  swaps     Int           @default(0)
+
+  // Entrega (status COMPLETED).
+  resolutionText   String?
+  photoFilename    String?
+  responseId       String?
+  response         Response? @relation(fields: [responseId], references: [id], onDelete: SetNull)
+
+  createdAt   DateTime  @default(now())
+  acceptedAt  DateTime?
+  /// Cuándo pasó a COMPLETED, FAILED, REJECTED o CANCELLED.
+  closedAt    DateTime?
+
+  reactions MissionReaction[]
+  comments  Comment[]
+
+  @@index([userId, date])
+  @@index([targetId])
+  @@index([status, date])
+  @@index([responseId])
 }
 
 // Ajustes globales. Los del boletín diario de cada grupo (saludo, hora,

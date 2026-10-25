@@ -9,7 +9,7 @@ import {
   FONT_BODY,
   FONT_SERIF,
 } from "@/lib/email-theme";
-import { formatLocalDate } from "@/lib/date";
+import { addDaysLocal, formatLocalDate } from "@/lib/date";
 import { avatarGradient } from "@/lib/avatar";
 import { displayName } from "@/lib/display-name";
 import { syncHeroPhotos, heroPhotosForGroup, resolveHeroPhotoForDate, type HeroPhotoRecord } from "@/lib/hero-photos";
@@ -30,6 +30,8 @@ export type NewsletterHero = {
 
 export type NewsletterResponse = {
   userName: string;
+  /** HOME: "¿Qué harás al llegar a tu casa?" (legacy); DAY: resumen del día. */
+  format: "HOME" | "DAY";
   atHome: boolean;
   arrivingLate: boolean;
   beforeHomePlan: string | null;
@@ -43,12 +45,77 @@ export type NewsletterResponse = {
   note: string | null;
   photoUrl: string | null;
   photoDescription: string | null;
+  // Resumen del día (en DAY, atHome es "¿Te quedaste en tu casa?").
+  didToday: string | null;
+  wentWhere: string | null;
+  bestPart: string | null;
+  worstPart: string | null;
+  tomorrowPlan: string | null;
+  mood: string | null;
+};
+
+/** Lo que muestra el boletín de una fila de Response (todo menos el nombre). */
+export function responseFields(r: {
+  format: string;
+  atHome: boolean;
+  arrivingLate: boolean;
+  beforeHomePlan: string | null;
+  stayedHome: boolean;
+  homePlan: string | null;
+  awayPlan: string | null;
+  tonightPlan: string | null;
+  food: string;
+  goingOut: boolean;
+  goingOutWhere: string | null;
+  note: string | null;
+  photoFilename: string | null;
+  photoDescription: string | null;
+  didToday: string | null;
+  wentWhere: string | null;
+  bestPart: string | null;
+  worstPart: string | null;
+  tomorrowPlan: string | null;
+  mood: string | null;
+}): Omit<NewsletterResponse, "userName"> {
+  return {
+    format: r.format === "DAY" ? "DAY" : "HOME",
+    atHome: r.atHome,
+    arrivingLate: r.arrivingLate,
+    beforeHomePlan: r.beforeHomePlan,
+    stayedHome: r.stayedHome,
+    homePlan: r.homePlan,
+    awayPlan: r.awayPlan,
+    tonightPlan: r.tonightPlan,
+    food: r.food,
+    goingOut: r.goingOut,
+    goingOutWhere: r.goingOutWhere,
+    note: r.note,
+    photoUrl: r.photoFilename ? `${getSiteUrl()}/${r.photoFilename}` : null,
+    photoDescription: r.photoDescription,
+    didToday: r.didToday,
+    wentWhere: r.wentWhere,
+    bestPart: r.bestPart,
+    worstPart: r.worstPart,
+    tomorrowPlan: r.tomorrowPlan,
+    mood: r.mood,
+  };
+}
+
+/** Una misión cumplida que sale en el boletín. */
+export type NewsletterMission = {
+  userName: string;
+  targetName: string;
+  /** Texto de la misión, ya con el nombre de la persona. */
+  text: string;
+  resolutionText: string;
+  photoUrl: string | null;
 };
 
 export type NewsletterContent = {
   html: string;
   text: string;
   responses: NewsletterResponse[];
+  missions: NewsletterMission[];
   greetingTemplate: string;
   hero: NewsletterHero;
 };
@@ -106,32 +173,42 @@ export async function resolveNewsletterHero(date: string, group: GroupNewsletter
   };
 }
 
+/**
+ * Misiones cumplidas que salen en el boletín de `date` de un grupo: las
+ * entregadas en un resumen que se mandó a ese grupo y cuya persona también
+ * es del grupo.
+ */
+export async function missionsForNewsletter(groupId: string, date: string) {
+  return prisma.missionAssignment.findMany({
+    where: {
+      status: "COMPLETED",
+      response: { date, groups: { some: { groupId } } },
+      target: { groupMemberships: { some: { groupId } } },
+    },
+    include: { mission: true, user: true, target: true },
+    orderBy: { closedAt: "asc" },
+  });
+}
+
 /** El boletín de `date` de un grupo: solo las respuestas que se mandaron a ese grupo. */
 export async function buildNewsletter(groupId: string, date: string): Promise<NewsletterContent> {
-  const [responses, group] = await Promise.all([
+  const [responses, group, missionRows] = await Promise.all([
     prisma.response.findMany({
       where: { date, groups: { some: { groupId } } },
       include: { user: true },
       orderBy: { user: { name: "asc" } },
     }),
     prisma.group.findUniqueOrThrow({ where: { id: groupId } }),
+    missionsForNewsletter(groupId, date),
   ]);
 
-  const items: NewsletterResponse[] = responses.map((r) => ({
-    userName: displayName(r.user),
-    atHome: r.atHome,
-    arrivingLate: r.arrivingLate,
-    beforeHomePlan: r.beforeHomePlan,
-    stayedHome: r.stayedHome,
-    homePlan: r.homePlan,
-    awayPlan: r.awayPlan,
-    tonightPlan: r.tonightPlan,
-    food: r.food,
-    goingOut: r.goingOut,
-    goingOutWhere: r.goingOutWhere,
-    note: r.note,
-    photoUrl: r.photoFilename ? `${getSiteUrl()}/${r.photoFilename}` : null,
-    photoDescription: r.photoDescription,
+  const items: NewsletterResponse[] = responses.map((r) => ({ userName: displayName(r.user), ...responseFields(r) }));
+  const missions: NewsletterMission[] = missionRows.map((m) => ({
+    userName: displayName(m.user),
+    targetName: displayName(m.target),
+    text: m.mission.text.replaceAll("{usuario}", displayName(m.target)),
+    resolutionText: m.resolutionText ?? "",
+    photoUrl: m.photoFilename ? `${getSiteUrl()}/${m.photoFilename}` : null,
   }));
 
   const hero = await resolveNewsletterHero(date, group);
@@ -140,26 +217,47 @@ export async function buildNewsletter(groupId: string, date: string): Promise<Ne
     html: renderHtml({
       date,
       items,
+      missions,
       newsletterName: group.name,
       tagline: group.tagline,
       hero,
     }),
-    text: renderText({ date, items, newsletterName: group.name, hero }),
+    text: renderText({ date, items, missions, newsletterName: group.name, hero }),
     responses: items,
+    missions,
     greetingTemplate: group.greetingTemplate,
     hero,
   };
 }
 
+/**
+ * Un boletín es de "resumen del día" salvo que traiga respuestas del
+ * formato anterior: los viejos se siguen viendo como salieron.
+ */
+function isDayNewsletter(items: { format: string }[]): boolean {
+  return !items.some((i) => i.format === "HOME");
+}
+
+/** "Resúmenes del viernes 23 de octubre · 7 resúmenes" (o el título del formato anterior). */
+function sectionLabel(date: string, items: { format: string }[]): string {
+  const n = items.length;
+  if (isDayNewsletter(items)) {
+    return `📻 Resúmenes del ${formatLocalDate(addDaysLocal(date, -1))} · ${n} ${n === 1 ? "resumen" : "resúmenes"}`;
+  }
+  return `📻 Reportes de la noche · ${capitalize(formatLocalDate(date))} · ${n} respuesta${n === 1 ? "" : "s"}`;
+}
+
 function renderHtml({
   date,
   items,
+  missions,
   newsletterName,
   tagline,
   hero,
 }: {
   date: string;
   items: NewsletterResponse[];
+  missions: NewsletterMission[];
   newsletterName: string;
   tagline: string;
   hero: NewsletterHero;
@@ -168,11 +266,14 @@ function renderHtml({
   const title = escapeHtml(newsletterName);
   const safeTagline = escapeHtml(tagline);
   const l = emailPalette;
+  const empty = isDayNewsletter(items)
+    ? "Nadie mandó su resumen. Todos son unos sandwiches remojados."
+    : "Nadie respondió hoy. Todos son unos sandwiches remojados.";
 
   const entries =
     items.length > 0
       ? items.map(renderCard).join("\n")
-      : `<tr><td class="text-faint" style="padding:8px 26px 20px;color:${l.faint};font-size:14px;">Nadie respondió hoy. Todos son unos sandwiches remojados.</td></tr>`;
+      : `<tr><td class="text-faint" style="padding:8px 26px 20px;color:${l.faint};font-size:14px;">${empty}</td></tr>`;
 
   const heroBlock = hero.enabled && hero.title.trim() ? renderHero(hero) : "";
 
@@ -181,14 +282,73 @@ function renderHtml({
     dateLabel,
     tagline: safeTagline,
     body: `${heroBlock}
+          ${renderMissionIndex(missions, Boolean(heroBlock))}
           <tr>
-            <td class="border-edge" style="padding:18px 26px 4px;${heroBlock ? `border-top:1px solid ${l.edge};` : ""}">
-              <p class="text-faint" style="margin:0;color:${l.faint};font-size:11px;text-transform:uppercase;letter-spacing:.12em;font-weight:700;">📻 Reportes de la noche · ${dateLabel} · ${items.length} respuesta${items.length === 1 ? "" : "s"}</p>
+            <td class="border-edge" style="padding:18px 26px 4px;${heroBlock || missions.length ? `border-top:1px solid ${l.edge};` : ""}">
+              <p class="text-faint" style="margin:0;color:${l.faint};font-size:11px;text-transform:uppercase;letter-spacing:.12em;font-weight:700;">${escapeHtml(sectionLabel(date, items))}</p>
               <p class="text-ink" style="margin:8px 0 4px;color:${l.ink};font-size:15px;"><!--GREETING--></p>
             </td>
           </tr>
-          ${entries}`,
+          ${entries}
+          ${renderMissions(missions)}`,
   });
+}
+
+/**
+ * Índice corto de las misiones cumplidas, arriba de los resúmenes, para que
+ * se vean de un vistazo aunque haya muchas respuestas. El detalle va al final.
+ */
+function renderMissionIndex(missions: NewsletterMission[], afterHero: boolean): string {
+  if (missions.length === 0) return "";
+  const l = emailPalette;
+  const rows = missions
+    .map(
+      (m) =>
+        `<p class="text-soft" style="margin:0 0 4px;color:${l.soft};font-size:13px;"><strong class="text-ink" style="color:${l.ink};">${escapeHtml(m.userName)} → ${escapeHtml(m.targetName)}:</strong> ${escapeHtml(m.text)}</p>`
+    )
+    .join("");
+  return `<tr>
+    <td class="border-edge" style="padding:16px 26px 12px;${afterHero ? `border-top:1px solid ${l.edge};` : ""}">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="bg-panel2 border-edge" style="${flatBg(l.panel2)}border:1px solid ${l.edge};border-radius:8px;">
+        <tr><td style="padding:10px 14px;">
+          <p class="text-pink" style="margin:0 0 6px;color:${l.pink};font-family:${FONT_DISPLAY};font-weight:700;font-size:14px;">🎯 Misiones cumplidas (${missions.length})</p>
+          ${rows}
+          <p class="text-faint" style="margin:6px 0 0;color:${l.faint};font-size:11.5px;">Cómo las cumplieron, al final del boletín ↓</p>
+        </td></tr>
+      </table>
+    </td>
+  </tr>`;
+}
+
+/** Detalle de las misiones cumplidas, al final del boletín. */
+function renderMissions(missions: NewsletterMission[]): string {
+  if (missions.length === 0) return "";
+  const l = emailPalette;
+  const cards = missions
+    .map((m) => {
+      const photo = m.photoUrl
+        ? `<img src="${escapeHtml(m.photoUrl)}" alt="" width="200" style="display:block;width:100%;max-width:200px;height:auto;border:2px solid ${l.panelBorder};border-radius:6px;margin:8px 0 0;" />`
+        : "";
+      return `<tr>
+    <td style="padding:6px 26px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="bg-bubble border-edge" style="${flatBg(l.bubble)}border:1px solid ${l.edge};border-radius:10px;">
+        <tr><td style="padding:11px 14px;">
+          <p class="text-pink" style="margin:0 0 4px;color:${l.pink};font-family:${FONT_DISPLAY};font-weight:700;font-size:14px;">${escapeHtml(m.userName)} para ${escapeHtml(m.targetName)}</p>
+          <p class="text-ink" style="margin:0 0 4px;color:${l.ink};font-size:13.5px;font-weight:700;">${escapeHtml(m.text)}</p>
+          <p class="text-soft" style="margin:0;color:${l.soft};font-size:13.5px;line-height:1.55;">${escapeHtml(m.resolutionText)}</p>
+          ${photo}
+        </td></tr>
+      </table>
+    </td>
+  </tr>`;
+    })
+    .join("\n");
+  return `<tr>
+    <td class="border-edge" style="padding:18px 26px 4px;border-top:1px solid ${l.edge};">
+      <p class="text-faint" style="margin:0;color:${l.faint};font-size:11px;text-transform:uppercase;letter-spacing:.12em;font-weight:700;">🎯 Misiones cumplidas · ${missions.length}</p>
+    </td>
+  </tr>
+  ${cards}`;
 }
 
 /**
@@ -341,6 +501,7 @@ function renderCard(item: NewsletterResponse): string {
 
 /** Contenido de una respuesta (plan, comida, nota, foto) dentro de su burbuja, sin el nombre. */
 export function responseDetailsHtml(item: Omit<NewsletterResponse, "userName">): string {
+  if (item.format === "DAY") return dayDetailsHtml(item);
   const l = emailPalette;
   const isOnTime = item.atHome && !item.stayedHome && !item.arrivingLate;
   const plan = escapeHtml(item.atHome ? item.homePlan ?? "" : item.awayPlan ?? "");
@@ -367,14 +528,51 @@ export function responseDetailsHtml(item: Omit<NewsletterResponse, "userName">):
             ${photoBlock}`;
 }
 
+function photoHtml(item: { photoUrl: string | null; photoDescription: string | null }): string {
+  const l = emailPalette;
+  if (!item.photoUrl) return "";
+  const description = item.photoDescription ? escapeHtml(item.photoDescription) : "";
+  return `<img src="${escapeHtml(item.photoUrl)}" alt="" width="200" style="display:block;width:100%;max-width:200px;height:auto;border:2px solid ${l.panelBorder};border-radius:6px;margin:8px 0 4px;" />
+       ${description ? `<p class="text-faint" style="margin:0 0 4px;color:${l.faint};font-size:11.5px;font-style:italic;">📷 ${description}</p>` : ""}`;
+}
+
+/** Las líneas "Etiqueta: valor" de un resumen del día, en orden. */
+function dayLines(item: Omit<NewsletterResponse, "userName">): [string, string][] {
+  const lines: [string, string][] = [];
+  if (item.mood) lines.push(["Estado", item.mood]);
+  lines.push(["Hizo", item.didToday ?? ""]);
+  lines.push(item.atHome ? ["Se quedó en casa", "sí"] : ["Fue a", item.wentWhere ?? ""]);
+  if (item.food) lines.push(["Comió", item.food]);
+  if (item.bestPart) lines.push(["Lo mejor", item.bestPart]);
+  if (item.worstPart) lines.push(["Lo peor", item.worstPart]);
+  if (item.tomorrowPlan) lines.push(["Después", item.tomorrowPlan]);
+  return lines;
+}
+
+function dayDetailsHtml(item: Omit<NewsletterResponse, "userName">): string {
+  const l = emailPalette;
+  const rows = dayLines(item)
+    .map(
+      ([label, value]) =>
+        `<p class="text-soft" style="margin:0 0 3px;color:${l.soft};font-size:13.5px;"><strong class="text-ink" style="color:${l.ink};">${label}:</strong> ${escapeHtml(value)}</p>`
+    )
+    .join("\n            ");
+  const note = item.note ? escapeHtml(item.note) : null;
+  return `${rows}
+            ${note ? `<p class="text-ink border-pink" style="margin:8px 0 0;padding:4px 0 0 10px;border-left:3px solid ${l.pink};color:${l.ink};font-size:13.5px;font-style:italic;">"${note}"</p>` : ""}
+            ${photoHtml(item)}`;
+}
+
 function renderText({
   date,
   items,
+  missions,
   newsletterName,
   hero,
 }: {
   date: string;
   items: NewsletterResponse[];
+  missions: NewsletterMission[];
   newsletterName: string;
   hero: NewsletterHero;
 }): string {
@@ -402,14 +600,33 @@ function renderText({
     lines.push("");
   }
 
-  lines.push("== REPORTES DE LA NOCHE ==");
+  if (missions.length) {
+    lines.push(`🎯 Misiones cumplidas (${missions.length}): ${missions.map((m) => `${m.userName} → ${m.targetName}`).join(", ")}. El detalle va al final.`);
+    lines.push("");
+  }
+
+  const day = isDayNewsletter(items);
+  lines.push(day ? RESUMENES_MARKER : REPORTES_MARKER);
+  lines.push(sectionLabel(date, items));
+  lines.push("");
 
   if (items.length === 0) {
-    lines.push("Nadie respondió hoy. Todos son unos sandwiches remojados.");
+    lines.push(day ? "Nadie mandó su resumen. Todos son unos sandwiches remojados." : "Nadie respondió hoy. Todos son unos sandwiches remojados.");
   } else {
     for (const item of items) {
       lines.push(`${item.userName}`);
       lines.push(...responseDetailsText(item));
+      lines.push("");
+    }
+  }
+
+  if (missions.length) {
+    lines.push("== MISIONES CUMPLIDAS ==");
+    for (const m of missions) {
+      lines.push(`${m.userName} para ${m.targetName}`);
+      lines.push(`  Misión: ${m.text}`);
+      lines.push(`  ${m.resolutionText}`);
+      if (m.photoUrl) lines.push("  Foto: adjunta");
       lines.push("");
     }
   }
@@ -419,6 +636,12 @@ function renderText({
 
 /** Versión texto plano de responseDetailsHtml(), una línea indentada por dato. */
 export function responseDetailsText(item: Omit<NewsletterResponse, "userName">): string[] {
+  if (item.format === "DAY") {
+    const lines = dayLines(item).map(([label, value]) => `  ${label}: ${value}`);
+    if (item.note) lines.push(`  Algo que compartir: ${item.note}`);
+    if (item.photoUrl) lines.push(`  Foto: adjunta${item.photoDescription ? ` (${item.photoDescription})` : ""}`);
+    return lines;
+  }
   const lines: string[] = [];
   const isOnTime = item.atHome && !item.stayedHome && !item.arrivingLate;
   const planLabel = item.atHome ? (item.stayedHome ? "Hoy en casa" : "Al llegar a casa") : "Para dónde va";
@@ -437,6 +660,10 @@ export function responseDetailsText(item: Omit<NewsletterResponse, "userName">):
   if (item.photoUrl) lines.push(`  Foto: adjunta${item.photoDescription ? ` (${item.photoDescription})` : ""}`);
   return lines;
 }
+
+// Marcadores del texto plano: dónde termina la portada (ver heroFromSnapshot).
+const REPORTES_MARKER = "== REPORTES DE LA NOCHE ==";
+const RESUMENES_MARKER = "== RESÚMENES DEL DÍA ==";
 
 export type NewsletterForDate = {
   /** true si ya existe un NewsletterSend del grupo para esa fecha (con o sin snapshot). */
@@ -530,7 +757,7 @@ function heroFromSnapshot(contentHtml: string, contentText: string): NewsletterH
 
   const lines = contentText.split("\n");
   const start = lines.indexOf("== PORTADA ==");
-  const end = lines.indexOf("== REPORTES DE LA NOCHE ==");
+  const end = lines.findIndex((line) => line === REPORTES_MARKER || line === RESUMENES_MARKER);
   if (start === -1 || end === -1) return hero;
 
   const block = lines.slice(start + 1, end);

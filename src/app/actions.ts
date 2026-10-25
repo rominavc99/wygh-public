@@ -4,9 +4,8 @@ import { revalidatePath } from "next/cache";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { rateLimit } from "@/lib/rate-limit";
-import { todayLocalDate } from "@/lib/date";
 import { writeResponse, type SaveResponseState } from "@/lib/save-response";
-import { responseGroupOptions, responseLock } from "@/lib/groups";
+import { openResponseDate, responseGroupOptions, responseLock } from "@/lib/groups";
 
 export type { SaveResponseState };
 
@@ -26,7 +25,7 @@ export async function saveResponse(
     };
   }
 
-  const date = todayLocalDate();
+  const date = await openResponseDate(session.user.id);
 
   const [existing, settings] = await Promise.all([
     prisma.response.findUnique({ where: { userId_date: { userId: session.user.id, date } } }),
@@ -47,7 +46,10 @@ export async function saveResponse(
     };
   }
 
-  const result = await writeResponse(session.user.id, date, formData, existing, allowedGroupIds);
-  if (result.status === "success") revalidatePath("/");
+  const result = await writeResponse(session.user.id, date, formData, existing, allowedGroupIds, true);
+  if (result.status === "success") {
+    revalidatePath("/");
+    revalidatePath("/misiones");
+  }
   return result;
 }

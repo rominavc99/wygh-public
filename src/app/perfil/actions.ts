@@ -49,6 +49,7 @@ export async function updateMyProfile(
   }
 
   revalidatePath("/perfil");
+  revalidatePath("/perfil/ajustes");
   revalidatePath("/");
   revalidatePath("/admin/cumpleanos");
   return { status: "success" };
@@ -74,6 +75,7 @@ export async function updateMyBirthday(
   await prisma.user.update({ where: { id: user.id }, data: { birthday: parsed.data } });
 
   revalidatePath("/perfil");
+  revalidatePath("/perfil/ajustes");
   revalidatePath("/");
   revalidatePath("/admin/cumpleanos");
   return { status: "success" };
@@ -97,5 +99,14 @@ export async function leaveGroup(formData: FormData) {
   if (!groupId) return;
   await prisma.groupMember.deleteMany({ where: { groupId, userId: user.id } });
   revalidatePath("/perfil");
+  revalidatePath("/perfil/ajustes");
   revalidatePath("/");
+}
+
+/** "No me elijan para misiones": deja (o vuelve) a salir como persona de las misiones de otros. */
+export async function setMissionOptOut(formData: FormData): Promise<void> {
+  const user = await requireUser();
+  await prisma.user.update({ where: { id: user.id }, data: { missionOptOut: formData.get("optOut") === "on" } });
+  revalidatePath("/perfil");
+  revalidatePath("/perfil/ajustes");
 }

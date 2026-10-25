@@ -3,58 +3,61 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { saveResponse, type SaveResponseState } from "./actions";
 import { preparePhoto, type PreparedPhoto } from "@/lib/prepare-photo";
+import { ASCII_PICKER, EMOJI_CATEGORIES } from "@/lib/emoji-data";
+import { EmojiPicker } from "./boletines/emoji-picker";
+import type { DeliverableMission } from "@/lib/missions";
 
+/** Lo que ya tenía guardado, si es un resumen del día (las HOME no se editan con este formulario). */
 type ExistingResponse = {
+  didToday: string | null;
   atHome: boolean;
-  arrivingLate: boolean;
-  beforeHomePlan: string | null;
-  stayedHome: boolean;
-  homePlan: string | null;
-  awayPlan: string | null;
-  tonightPlan: string | null;
+  wentWhere: string | null;
   food: string;
-  goingOut: boolean;
-  goingOutWhere: string | null;
+  bestPart: string | null;
+  worstPart: string | null;
+  tomorrowPlan: string | null;
   note: string | null;
+  mood: string | null;
   photoFilename: string | null;
   photoDescription: string | null;
   phraseText: string | null;
 } | null;
 
-type HomeStatus = "onTime" | "later" | "away" | "stayed";
-
 /** Un grupo al que puede ir la respuesta (ver responseGroupOptions en src/lib/groups.ts). */
 export type FormGroup = { id: string; name: string; checked: boolean; disabled: boolean };
+
+/** De qué día habla el resumen, para las preguntas: "hoy", "ayer" o "ese día" (extraordinarias). */
+export type DayWord = "hoy" | "ayer" | "ese día";
 
 /**
  * Lo que la persona llevaba escrito, guardado en el navegador (localStorage)
  * mientras llena el formulario — si el envío falla (sin internet, un
  * bloqueo, se cerró la pestaña), al volver se recupera en vez de tener que
  * escribir todo otra vez. Se borra al guardarse bien en el servidor. La
- * clave lleva usuario y fecha, así que el de ayer no aparece hoy.
+ * clave lleva usuario y fecha, así que el de ayer no aparece hoy. Las fotos
+ * de las misiones no van al borrador, solo su texto.
  */
 type Draft = {
   fields: Record<string, string>;
-  homeStatus: HomeStatus;
-  goingOut: boolean;
+  stayedHome: "si" | "no" | null;
   photo: PreparedPhoto | null;
   removePhoto: boolean;
   savedAt: number;
 };
 
 const TEXT_FIELDS = [
-  "beforeHomePlan",
-  "homePlan",
-  "awayPlan",
-  "tonightPlan",
+  "didToday",
+  "wentWhere",
   "food",
-  "goingOutWhere",
+  "bestPart",
+  "worstPart",
+  "tomorrowPlan",
   "note",
+  "mood",
   "photoDescription",
   "phrase",
 ] as const;
-/** Lo que va al borrador: los textos más la fecha del formulario extraordinario. */
-const DRAFT_FIELDS = [...TEXT_FIELDS, "date"] as const;
+type TextField = (typeof TEXT_FIELDS)[number];
 
 type SaveAction = (prevState: SaveResponseState, formData: FormData) => Promise<SaveResponseState>;
 
@@ -69,7 +72,9 @@ function loadDraft(key: string): Draft | null {
       if (k?.startsWith(prefix) && k !== key) localStorage.removeItem(k);
     }
     const raw = localStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as Draft) : null;
+    const draft = raw ? (JSON.parse(raw) as Draft) : null;
+    // Un borrador del formulario anterior ("¿Qué harás al llegar?") no sirve aquí.
+    return draft && "stayedHome" in draft ? draft : null;
   } catch {
     return null;
   }
@@ -96,15 +101,8 @@ function clearDraft(key: string) {
   }
 }
 
-function homeStatusFor(existing: ExistingResponse): HomeStatus {
-  if (!existing) return "onTime";
-  if (!existing.atHome) return "away";
-  if (existing.stayedHome) return "stayed";
-  return existing.arrivingLate ? "later" : "onTime";
-}
-
 const NETWORK_ERROR =
-  "No se pudo enviar tu respuesta (¿se cortó el internet?). No te preocupes: lo que escribiste quedó guardado en este dispositivo. Intenta de nuevo.";
+  "No se pudo enviar tu resumen (¿se cortó el internet?). No te preocupes: lo que escribiste quedó guardado en este dispositivo. Intenta de nuevo.";
 
 export function ResponseForm({
   existing,
@@ -113,6 +111,8 @@ export function ResponseForm({
   dateOptions,
   dateMax,
   groups = [],
+  missions = [],
+  dayWord = "hoy",
 }: {
   existing: ExistingResponse;
   draftKey: string;
@@ -120,6 +120,9 @@ export function ResponseForm({
   action?: SaveAction;
   /** Grupos de la persona. Solo se pide elegir si hay dos o más que se puedan elegir. */
   groups?: FormGroup[];
+  /** Misiones aceptadas que se entregan con este resumen (solo el formulario diario). */
+  missions?: DeliverableMission[];
+  dayWord?: DayWord;
   /** Si viene, se pide elegir el día entre estos (formulario de respuestas extraordinarias). */
   dateOptions?: { value: string; label: string }[];
   /** Si viene (y no dateOptions), se pide cualquier día hasta este, con calendario (admins). */
@@ -146,12 +149,30 @@ export function ResponseForm({
       dateOptions={dateOptions}
       dateMax={dateMax}
       groups={groups}
+      missions={missions}
+      dayWord={dayWord}
       onDiscardDraft={() => {
         clearDraft(draftKey);
         setDraft(null);
       }}
     />
   );
+}
+
+/** Preguntas que dependen de si el resumen es de hoy, de ayer o de otro día. */
+function questions(dayWord: DayWord) {
+  if (dayWord === "ayer") {
+    return { did: "¿Qué hiciste ayer?", home: "¿Te quedaste en tu casa?", food: "¿Qué comiste ayer? (opcional)", next: "¿Qué crees que harás hoy?" };
+  }
+  if (dayWord === "ese día") {
+    return {
+      did: "¿Qué hiciste ese día?",
+      home: "¿Te quedaste en tu casa?",
+      food: "¿Qué comiste ese día? (opcional)",
+      next: "¿Qué pensabas hacer al día siguiente?",
+    };
+  }
+  return { did: "¿Qué hiciste hoy?", home: "¿Te quedaste en tu casa?", food: "¿Qué comiste? (opcional)", next: "¿Qué crees que harás mañana?" };
 }
 
 function ResponseFormFields({
@@ -162,6 +183,8 @@ function ResponseFormFields({
   dateOptions,
   dateMax,
   groups,
+  missions,
+  dayWord,
   onDiscardDraft,
 }: {
   existing: ExistingResponse;
@@ -171,37 +194,47 @@ function ResponseFormFields({
   dateOptions?: { value: string; label: string }[];
   dateMax?: string;
   groups: FormGroup[];
+  missions: DeliverableMission[];
+  dayWord: DayWord;
   onDiscardDraft: () => void;
 }) {
   const [state, setState] = useState<SaveResponseState>({ status: "idle" });
   const [pending, startTransition] = useTransition();
-  const [homeStatus, setHomeStatus] = useState<HomeStatus>(draft?.homeStatus ?? homeStatusFor(existing));
-  const [goingOut, setGoingOut] = useState(draft?.goingOut ?? existing?.goingOut ?? false);
+  const [stayedHome, setStayedHome] = useState<"si" | "no" | null>(
+    draft?.stayedHome ?? (existing ? (existing.atHome ? "si" : "no") : null)
+  );
   const [newPhoto, setNewPhoto] = useState<PreparedPhoto | null>(draft?.photo ?? null);
-  const [photoBusy, setPhotoBusy] = useState(false);
   const [removePhoto, setRemovePhoto] = useState(draft?.removePhoto ?? false);
+  const [missionPhotos, setMissionPhotos] = useState<Record<string, PreparedPhoto | null>>({});
+  const [removedMissionPhotos, setRemovedMissionPhotos] = useState<Record<string, boolean>>({});
+  const [busyPhotos, setBusyPhotos] = useState(0);
   const formRef = useRef<HTMLFormElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  // Se arrastra el texto de campos que se ocultan (p. ej. al cambiar de
-  // "llego a la hora normal" a "no llego"), para no perderlo si regresa.
+  // Se arrastra el texto de campos que se ocultan (p. ej. "¿A dónde fuiste?"
+  // al cambiar a "Sí"), para no perderlo si regresa.
   const fieldsRef = useRef<Record<string, string>>(draft?.fields ?? {});
   const dirtyRef = useRef(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
+  const q = questions(dayWord);
   const fieldErrors = state.status === "error" ? state.fieldErrors ?? {} : {};
   const hasExistingPhoto = Boolean(existing?.photoFilename) && !removePhoto;
   const photoRequired = Boolean(newPhoto) || hasExistingPhoto;
 
-  function initial(name: (typeof TEXT_FIELDS)[number]): string {
+  function initial(name: TextField | string): string {
     if (draft && name in draft.fields) return draft.fields[name];
     if (name === "phrase") return existing?.phraseText ?? "";
-    return (existing?.[name] as string | null | undefined) ?? "";
+    if (name.startsWith("mission:")) {
+      const id = name.split(":")[1];
+      return missions.find((m) => m.id === id)?.resolutionText ?? "";
+    }
+    return (existing?.[name as keyof NonNullable<ExistingResponse>] as string | null | undefined) ?? "";
   }
 
   function saveDraftNow() {
     const form = formRef.current;
     if (!form) return;
-    for (const name of DRAFT_FIELDS) {
+    const names = [...TEXT_FIELDS, "date", ...missions.map((m) => `mission:${m.id}:text`)];
+    for (const name of names) {
       const el = form.elements.namedItem(name);
       if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) {
         fieldsRef.current[name] = el.value;
@@ -209,8 +242,7 @@ function ResponseFormFields({
     }
     writeDraft(draftKey, {
       fields: { ...fieldsRef.current },
-      homeStatus,
-      goingOut,
+      stayedHome,
       photo: newPhoto,
       removePhoto,
       savedAt: Date.now(),
@@ -228,35 +260,21 @@ function ResponseFormFields({
   useEffect(() => {
     if (dirtyRef.current) saveDraftNow();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- solo cuando cambian estos valores
-  }, [homeStatus, goingOut, newPhoto, removePhoto]);
+  }, [stayedHome, newPhoto, removePhoto]);
 
   useEffect(() => () => clearTimeout(saveTimer.current), []);
 
-  async function handlePhotoChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
+  async function readPhoto(file: File | undefined, errorKey: string): Promise<PreparedPhoto | null> {
     dirtyRef.current = true;
-    if (!file) {
-      setNewPhoto(null);
-      return;
-    }
-    setPhotoBusy(true);
+    if (!file) return null;
+    setBusyPhotos((n) => n + 1);
     try {
-      setNewPhoto(await preparePhoto(file));
-      setRemovePhoto(false);
+      return await preparePhoto(file);
     } catch {
-      setState({ status: "error", fieldErrors: { photo: "No pudimos procesar esa foto. Intenta con otra." } });
+      setState({ status: "error", fieldErrors: { [errorKey]: "No pudimos procesar esa foto. Intenta con otra." } });
+      return null;
     } finally {
-      setPhotoBusy(false);
-    }
-  }
-
-  function handleRemovePhoto() {
-    dirtyRef.current = true;
-    if (newPhoto) {
-      setNewPhoto(null);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    } else {
-      setRemovePhoto(true);
+      setBusyPhotos((n) => n - 1);
     }
   }
 
@@ -269,11 +287,16 @@ function ResponseFormFields({
   // y dejar el formulario tal cual, con el borrador a salvo.
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (photoBusy) return;
+    if (busyPhotos > 0) return;
     const data = new FormData(e.currentTarget);
     if (newPhoto) {
       data.set("photoData", newPhoto.data);
       data.set("photoType", newPhoto.type);
+    }
+    for (const [id, photo] of Object.entries(missionPhotos)) {
+      if (!photo) continue;
+      data.set(`mission:${id}:photoData`, photo.data);
+      data.set(`mission:${id}:photoType`, photo.type);
     }
     dirtyRef.current = true;
     clearTimeout(saveTimer.current);
@@ -291,7 +314,7 @@ function ResponseFormFields({
   }
 
   return (
-    <form ref={formRef} onSubmit={handleSubmit} onInput={scheduleSave} className="flex flex-col gap-6">
+    <form ref={formRef} onSubmit={handleSubmit} onInput={scheduleSave} className="flex flex-col gap-5">
       {draft ? (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-panel-edge bg-panel-2 px-3 py-2 text-sm">
           <span className="font-bold text-accent-pink-2">📝 Recuperamos lo que tenías escrito y no se había enviado.</span>
@@ -309,7 +332,7 @@ function ResponseFormFields({
             defaultValue={
               dateOptions.some((o) => o.value === draft?.fields.date) ? draft!.fields.date : dateOptions[0]?.value
             }
-            className={inputClass}
+            className="xp-select"
           >
             {dateOptions.map((o) => (
               <option key={o.value} value={o.value}>
@@ -320,245 +343,160 @@ function ResponseFormFields({
         </Field>
       ) : dateMax ? (
         <Field label="¿Para qué día es tu respuesta?" error={fieldErrors.date}>
-          <input
-            type="date"
-            name="date"
-            required
-            max={dateMax}
-            defaultValue={draft?.fields.date ?? ""}
-            className={inputClass}
-          />
+          <input type="date" name="date" required max={dateMax} defaultValue={draft?.fields.date ?? ""} className="xp-input" />
         </Field>
       ) : null}
 
-      <fieldset className="flex flex-col gap-2">
-        <legend className="mb-1 text-sm font-bold text-ink">¿Vas a llegar a tu casa hoy?</legend>
-        <div className="flex flex-col gap-2">
-          <label className="flex items-center gap-2 text-sm font-bold text-ink">
-            <input
-              type="radio"
-              name="homeStatus"
-              value="onTime"
-              checked={homeStatus === "onTime"}
-              onChange={() => setHomeStatus("onTime")}
-              className="h-4 w-4 accent-[var(--accent-pink)]"
-            />
-            Sí, llegaré a la hora normal
-          </label>
-          <label className="flex items-center gap-2 text-sm font-bold text-ink">
-            <input
-              type="radio"
-              name="homeStatus"
-              value="later"
-              checked={homeStatus === "later"}
-              onChange={() => setHomeStatus("later")}
-              className="h-4 w-4 accent-[var(--accent-pink)]"
-            />
-            Sí, voy a llegar más tarde
-          </label>
-          <label className="flex items-center gap-2 text-sm font-bold text-ink">
-            <input
-              type="radio"
-              name="homeStatus"
-              value="away"
-              checked={homeStatus === "away"}
-              onChange={() => setHomeStatus("away")}
-              className="h-4 w-4 accent-[var(--accent-pink)]"
-            />
-            No voy a llegar a mi casa hoy
-          </label>
-          <label className="flex items-center gap-2 text-sm font-bold text-ink">
-            <input
-              type="radio"
-              name="homeStatus"
-              value="stayed"
-              checked={homeStatus === "stayed"}
-              onChange={() => setHomeStatus("stayed")}
-              className="h-4 w-4 accent-[var(--accent-pink)]"
-            />
-            Hoy me quedé en la casa
-          </label>
+      <p className="form-section">Tu día</p>
+
+      <Field label={q.did} error={fieldErrors.didToday} htmlFor="f-didToday">
+        <textarea id="f-didToday" name="didToday" rows={3} required defaultValue={initial("didToday")} className="xp-textarea" />
+      </Field>
+
+      <fieldset className="flex flex-col gap-1.5">
+        <legend className="mb-1.5 text-sm font-bold text-ink">{q.home}</legend>
+        <div className="seg">
+          {(["si", "no"] as const).map((value) => (
+            <label key={value}>
+              <input
+                type="radio"
+                name="stayedHome"
+                value={value}
+                checked={stayedHome === value}
+                onChange={() => setStayedHome(value)}
+                required
+              />
+              {value === "si" ? "Sí" : "No"}
+            </label>
+          ))}
         </div>
+        {fieldErrors.atHome ? <p className="text-sm text-danger">{fieldErrors.atHome}</p> : null}
       </fieldset>
 
-      <Field
-        label="¿Qué harás antes de llegar a tu casa?"
-        error={fieldErrors.beforeHomePlan}
-        hidden={homeStatus !== "later"}
-      >
-        <textarea
-          name="beforeHomePlan"
-          rows={3}
-          defaultValue={initial("beforeHomePlan")}
-          className={textareaClass}
-        />
+      <Field label="¿A dónde fuiste?" error={fieldErrors.wentWhere} hidden={stayedHome !== "no"} htmlFor="f-wentWhere">
+        <input id="f-wentWhere" type="text" name="wentWhere" required defaultValue={initial("wentWhere")} className="xp-input" />
       </Field>
 
-      <Field
-        label={homeStatus === "stayed" ? "¿Qué hiciste hoy en tu casa?" : "¿Qué vas a hacer cuando llegues a tu casa?"}
-        error={fieldErrors.homePlan}
-        hidden={homeStatus === "away"}
-      >
-        <textarea
-          name="homePlan"
-          rows={3}
-          defaultValue={initial("homePlan")}
-          className={textareaClass}
-        />
+      <Field label={q.food} error={fieldErrors.food} htmlFor="f-food">
+        <input id="f-food" type="text" name="food" maxLength={1000} defaultValue={initial("food")} className="xp-input" />
       </Field>
 
-      <Field label="¿Para dónde vas y a qué?" error={fieldErrors.awayPlan} hidden={homeStatus !== "away"}>
-        <textarea
-          name="awayPlan"
-          rows={3}
-          defaultValue={initial("awayPlan")}
-          className={textareaClass}
-        />
+      <hr className="form-rule" />
+      <p className="form-section">Lo mejor y lo peor</p>
+
+      <div className="grid gap-5 sm:grid-cols-2">
+        <Field label="La mejor parte del día fue…" error={fieldErrors.bestPart} htmlFor="f-bestPart">
+          <textarea id="f-bestPart" name="bestPart" rows={2} defaultValue={initial("bestPart")} className="xp-textarea" />
+        </Field>
+        <Field label="La peor parte del día fue…" error={fieldErrors.worstPart} htmlFor="f-worstPart">
+          <textarea id="f-worstPart" name="worstPart" rows={2} defaultValue={initial("worstPart")} className="xp-textarea" />
+        </Field>
+      </div>
+
+      <Field label={q.next} error={fieldErrors.tomorrowPlan} htmlFor="f-tomorrowPlan">
+        <textarea id="f-tomorrowPlan" name="tomorrowPlan" rows={2} defaultValue={initial("tomorrowPlan")} className="xp-textarea" />
       </Field>
 
-      <Field label="¿Qué harás en la noche?" error={fieldErrors.tonightPlan} hidden={homeStatus !== "stayed"}>
-        <textarea
-          name="tonightPlan"
-          rows={3}
-          defaultValue={initial("tonightPlan")}
-          className={textareaClass}
-        />
-      </Field>
+      <hr className="form-rule" />
+      <p className="form-section">Extras</p>
 
-      <Field label="¿Qué vas a comer?" error={fieldErrors.food}>
-        <textarea
-          name="food"
-          rows={2}
-          required
-          defaultValue={initial("food")}
-          className={textareaClass}
-        />
-      </Field>
+      <MoodField defaultValue={initial("mood")} error={fieldErrors.mood} onChange={scheduleSave} />
 
-      {homeStatus === "onTime" ? (
-        <>
-          <fieldset className="flex flex-col gap-2">
-            <legend className="mb-1 text-sm font-bold text-ink">¿Vas a salir?</legend>
-            <div className="flex gap-4">
-              <label className="flex items-center gap-2 text-sm font-bold text-ink">
-                <input
-                  type="radio"
-                  name="goingOut"
-                  value="si"
-                  checked={goingOut}
-                  onChange={() => setGoingOut(true)}
-                  className="h-4 w-4 accent-[var(--accent-pink)]"
-                />
-                Sí
-              </label>
-              <label className="flex items-center gap-2 text-sm font-bold text-ink">
-                <input
-                  type="radio"
-                  name="goingOut"
-                  value="no"
-                  checked={!goingOut}
-                  onChange={() => setGoingOut(false)}
-                  className="h-4 w-4 accent-[var(--accent-pink)]"
-                />
-                No
-              </label>
-            </div>
-          </fieldset>
-
-          <Field label="¿A dónde?" error={fieldErrors.goingOutWhere} hidden={!goingOut}>
-            <input
-              type="text"
-              name="goingOutWhere"
-              defaultValue={initial("goingOutWhere")}
-              className={inputClass}
-            />
-          </Field>
-        </>
-      ) : null}
-
-      <Field label="¿Algo que quieras mencionar? (opcional)">
-        <textarea
-          name="note"
-          rows={2}
-          defaultValue={initial("note")}
-          className={textareaClass}
-        />
+      <Field label="Algo que quieras compartir (opcional)" error={fieldErrors.note} htmlFor="f-note">
+        <textarea id="f-note" name="note" rows={2} defaultValue={initial("note")} className="xp-textarea" />
       </Field>
 
       <div className="flex flex-col gap-1.5">
-        <label className="text-sm font-bold text-ink">Foto del día (opcional)</label>
-
-        {newPhoto || hasExistingPhoto ? (
-          <div className="group relative h-20 w-20">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={newPhoto?.dataUrl ?? `/${existing!.photoFilename}`}
-              alt=""
-              className="h-20 w-20 rounded-lg border border-panel-edge object-cover"
-            />
-            <button
-              type="button"
-              onClick={handleRemovePhoto}
-              title="Quitar foto"
-              aria-label="Quitar foto"
-              className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full border-2 border-white bg-danger text-xs font-bold leading-none text-white shadow hover:opacity-90"
-            >
-              ×
-            </button>
-          </div>
-        ) : null}
-
-        {/* Solo importa para el servidor cuando se quita la foto ya
-            guardada — si es una foto nueva sin guardar, basta con vaciar
-            el <input type="file"> (ver handleRemovePhoto). */}
-        <input type="checkbox" name="removePhoto" checked={removePhoto} readOnly className="hidden" />
-
-        {fieldErrors.photo ? <p className="text-sm text-danger">{fieldErrors.photo}</p> : null}
-
-        {/* Sin name a propósito: la foto no viaja como archivo sino ya
-            preparada en base64 (ver handleSubmit y src/lib/prepare-photo.ts). */}
-        {photoBusy ? <p className="text-xs text-ink-faint">Procesando foto…</p> : null}
-        <input
-          ref={fileInputRef}
-          type="file"
-          // image/* y no la lista exacta de tipos: con la lista, el selector
-          // de Fotos del iPhone no deja elegir las fotos HEIC (el formato
-          // por default del iPhone) y había que exportarlas a Archivos
-          // primero. preparePhoto las convierte a JPEG de todos modos.
-          accept="image/*"
-          onChange={handlePhotoChange}
-          className={inputClass}
+        <span className="text-sm font-bold text-ink">Foto del día (opcional)</span>
+        <PhotoPicker
+          photo={newPhoto}
+          existingUrl={hasExistingPhoto ? `/${existing!.photoFilename}` : null}
+          busy={busyPhotos > 0}
+          error={fieldErrors.photo}
+          label="Foto del día"
+          onPick={async (file) => {
+            const photo = await readPhoto(file, "photo");
+            if (photo) {
+              setNewPhoto(photo);
+              setRemovePhoto(false);
+            }
+          }}
+          onRemove={() => {
+            dirtyRef.current = true;
+            if (newPhoto) setNewPhoto(null);
+            else setRemovePhoto(true);
+          }}
         />
+        {/* Solo importa para el servidor cuando se quita la foto ya guardada. */}
+        <input type="checkbox" name="removePhoto" checked={removePhoto} readOnly className="hidden" />
       </div>
 
       <Field
-        label={`Descripción de la foto${photoRequired ? "" : " (opcional)"}`}
+        label="Descripción de la foto"
         error={fieldErrors.photoDescription}
         hidden={!photoRequired}
+        htmlFor="f-photoDescription"
       >
-        <input
-          type="text"
-          name="photoDescription"
-          defaultValue={initial("photoDescription")}
-          className={inputClass}
-        />
+        <input id="f-photoDescription" type="text" name="photoDescription" defaultValue={initial("photoDescription")} className="xp-input" />
       </Field>
 
-      <div className="flex flex-col gap-1.5">
-        <label className="text-sm font-bold text-ink">Frase del día (opcional)</label>
+      <Field label="Frase del día (opcional)" error={fieldErrors.phraseText} htmlFor="f-phrase">
         <p className="text-xs text-ink-faint">
-          Si mandas una, entra al catálogo de frases y puede aparecer en la portada del
-          boletín de los grupos a los que mandes tu respuesta, con tu nombre.
+          Si mandas una, entra al catálogo de frases y puede aparecer en la portada del boletín de los grupos a los
+          que mandes tu resumen, con tu nombre.
         </p>
-        <input
-          type="text"
-          name="phrase"
-          maxLength={300}
-          defaultValue={initial("phrase")}
-          className={inputClass}
-        />
-        {fieldErrors.phraseText ? <p className="text-sm text-danger">{fieldErrors.phraseText}</p> : null}
-      </div>
+        <input id="f-phrase" type="text" name="phrase" maxLength={300} defaultValue={initial("phrase")} className="xp-input" />
+      </Field>
+
+      {missions.length ? (
+        <>
+          <hr className="form-rule" />
+          <p className="form-section">Misiones a entregar ({missions.length})</p>
+          <p className="-mt-3 text-xs text-ink-faint">
+            Cuenta cómo la cumpliste. Si la dejas vacía, sigue pendiente; si no la entregas antes de que salga el
+            boletín, cuenta como advertencia.
+          </p>
+          {missions.map((m) => {
+            const key = `mission:${m.id}:text`;
+            const removed = removedMissionPhotos[m.id] ?? false;
+            const photo = missionPhotos[m.id] ?? null;
+            return (
+              <div key={m.id} className="mission-card flex flex-col gap-2.5">
+                <div className="flex flex-wrap gap-2">
+                  <span className="chip chip-pink">Para {m.targetName}</span>
+                  {m.requiresPhoto ? <span className="chip chip-neutral">Requiere foto</span> : null}
+                </div>
+                <p className="text-sm font-bold text-ink">{m.text}</p>
+                <textarea
+                  name={key}
+                  rows={2}
+                  maxLength={1000}
+                  aria-label={`Cómo cumpliste: ${m.text}`}
+                  placeholder="Cuenta cómo la cumpliste"
+                  defaultValue={initial(key)}
+                  className="xp-textarea"
+                />
+                <PhotoPicker
+                  photo={photo}
+                  existingUrl={m.photoFilename && !removed ? `/${m.photoFilename}` : null}
+                  busy={busyPhotos > 0}
+                  label={`Foto de la misión para ${m.targetName}`}
+                  onPick={async (file) => {
+                    const prepared = await readPhoto(file, key);
+                    if (prepared) setMissionPhotos((prev) => ({ ...prev, [m.id]: prepared }));
+                  }}
+                  onRemove={() => {
+                    if (photo) setMissionPhotos((prev) => ({ ...prev, [m.id]: null }));
+                    else setRemovedMissionPhotos((prev) => ({ ...prev, [m.id]: true }));
+                  }}
+                />
+                <input type="checkbox" name={`mission:${m.id}:removePhoto`} checked={removed} readOnly className="hidden" />
+                {fieldErrors[key] ? <p className="text-sm text-danger">{fieldErrors[key]}</p> : null}
+              </div>
+            );
+          })}
+        </>
+      ) : null}
 
       <GroupPicker groups={groups} error={fieldErrors.groups} />
 
@@ -567,11 +505,146 @@ function ResponseFormFields({
           {state.message}
         </p>
       ) : null}
+      {state.status === "success" ? (
+        <p role="status" className="text-sm font-bold text-chrome-4">
+          ✅ Listo, tu resumen quedó guardado.
+        </p>
+      ) : null}
 
-      <button type="submit" disabled={pending || photoBusy} className="xp-btn self-start">
-        {pending ? "Guardando…" : existing ? "Actualizar" : "Enviar →"}
+      <button type="submit" disabled={pending || busyPhotos > 0} className="xp-btn w-full sm:w-auto sm:self-end">
+        {pending ? "Guardando…" : existing ? "Actualizar resumen" : "Enviar resumen"}
       </button>
     </form>
+  );
+}
+
+/** "Estado": texto libre con un botón para agregarle un emoji. */
+function MoodField({ defaultValue, error, onChange }: { defaultValue: string; error?: string; onChange: () => void }) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
+  // Dónde estaba el cursor la última vez que se escribió en el campo. Sin
+  // esto, si nunca se tocó, el navegador reporta la posición 0 y el emoji
+  // terminaba al principio del texto en vez de al final.
+  const caretRef = useRef<{ start: number; end: number } | null>(null);
+
+  function rememberCaret() {
+    const input = inputRef.current;
+    if (input) caretRef.current = { start: input.selectionStart ?? input.value.length, end: input.selectionEnd ?? input.value.length };
+  }
+
+  function insert(emoji: string) {
+    const input = inputRef.current;
+    if (!input) return;
+    const { start, end } = caretRef.current ?? { start: input.value.length, end: input.value.length };
+    const before = input.value.slice(0, start);
+    // Un espacio de separación si va pegado a texto (los emoticones de texto se leen mal juntos).
+    const glue = before && !before.endsWith(" ") ? " " : "";
+    input.value = `${before}${glue}${emoji}${input.value.slice(end)}`.slice(0, 120);
+    const caret = Math.min(before.length + glue.length + emoji.length, input.value.length);
+    caretRef.current = { start: caret, end: caret };
+    input.focus();
+    input.setSelectionRange(caret, caret);
+    onChange();
+  }
+
+  return (
+    <Field label="Estado" error={error} htmlFor="f-mood">
+      <div className="flex gap-2">
+        <button
+          ref={triggerRef}
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-label="Agregar un emoji al estado"
+          aria-expanded={open}
+          className="xp-btn-secondary flex-none px-3 text-lg leading-none"
+        >
+          😊
+        </button>
+        <input
+          ref={inputRef}
+          id="f-mood"
+          type="text"
+          name="mood"
+          onSelect={rememberCaret}
+          onKeyUp={rememberCaret}
+          required
+          maxLength={120}
+          placeholder="Feliz, con sueño, en modo hibernación…"
+          defaultValue={defaultValue}
+          className="xp-input"
+        />
+      </div>
+      {open ? (
+        <EmojiPicker
+          categories={EMOJI_CATEGORIES}
+          asciiItems={ASCII_PICKER}
+          searchable
+          label="Emoji para el estado"
+          anchorRef={triggerRef}
+          onClose={() => setOpen(false)}
+          onSelect={insert}
+        />
+      ) : null}
+    </Field>
+  );
+}
+
+/** Elegir, ver y quitar una foto (la del día o la de una misión). */
+function PhotoPicker({
+  photo,
+  existingUrl,
+  busy,
+  error,
+  label,
+  onPick,
+  onRemove,
+}: {
+  photo: PreparedPhoto | null;
+  existingUrl: string | null;
+  busy: boolean;
+  error?: string;
+  label: string;
+  onPick: (file: File | undefined) => void;
+  onRemove: () => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const preview = photo?.dataUrl ?? existingUrl;
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      {preview ? (
+        <div className="relative h-24 w-24">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={preview} alt="" className="h-24 w-24 rounded-lg border-2 border-[var(--nb-line)] object-cover" />
+          <button
+            type="button"
+            onClick={() => {
+              if (inputRef.current) inputRef.current.value = "";
+              onRemove();
+            }}
+            aria-label={`Quitar ${label.toLowerCase()}`}
+            className="absolute -right-2 -top-2 flex h-7 w-7 items-center justify-center rounded-full border-2 border-white bg-danger text-sm font-bold leading-none text-white shadow hover:opacity-90"
+          >
+            ×
+          </button>
+        </div>
+      ) : null}
+      {busy ? <p className="text-xs text-ink-faint">Procesando foto…</p> : null}
+      {/* Sin name a propósito: la foto no viaja como archivo sino ya
+          preparada en base64 (ver handleSubmit y src/lib/prepare-photo.ts).
+          image/* y no la lista exacta de tipos: con la lista, el selector de
+          Fotos del iPhone no deja elegir las HEIC; preparePhoto las convierte. */}
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        aria-label={label}
+        onChange={(e) => onPick(e.target.files?.[0])}
+        className="xp-input"
+      />
+      {error ? <p className="text-sm text-danger">{error}</p> : null}
+    </div>
   );
 }
 
@@ -596,19 +669,19 @@ function GroupPicker({ groups, error }: { groups: FormGroup[]; error?: string })
 
   return (
     <fieldset className="flex flex-col gap-2 rounded-lg border border-panel-edge bg-panel-2 p-3">
-      <legend className="px-1 text-sm font-bold text-ink">🫂 ¿A qué grupos la mandas?</legend>
-      <label className="flex items-center gap-2 text-sm font-bold text-ink">
+      <legend className="px-1 text-sm font-bold text-ink">🫂 ¿A qué grupos lo mandas?</legend>
+      <label className="flex min-h-8 items-center gap-2 text-sm font-bold text-ink">
         <input
           type="checkbox"
           checked={allChecked}
           onChange={() => setChecked(allChecked ? new Set() : new Set(selectable.map((g) => g.id)))}
-          className="h-4 w-4 accent-[var(--accent-pink)]"
+          className="h-5 w-5 accent-[var(--accent-pink)]"
         />
         A todos mis grupos
       </label>
-      <div className="ml-6 flex flex-wrap gap-x-4 gap-y-1">
+      <div className="ml-7 flex flex-wrap gap-x-4 gap-y-1">
         {groups.map((g) => (
-          <label key={g.id} className={`flex items-center gap-1.5 text-sm ${g.disabled ? "text-ink-faint" : "text-ink"}`}>
+          <label key={g.id} className={`flex min-h-8 items-center gap-1.5 text-sm ${g.disabled ? "text-ink-faint" : "text-ink"}`}>
             <input
               type="checkbox"
               name={g.disabled ? undefined : "groupIds"}
@@ -616,7 +689,7 @@ function GroupPicker({ groups, error }: { groups: FormGroup[]; error?: string })
               checked={g.disabled ? g.checked : checked.has(g.id)}
               disabled={g.disabled}
               onChange={() => toggle(g.id)}
-              className="h-4 w-4 accent-[var(--accent-pink)]"
+              className="h-5 w-5 accent-[var(--accent-pink)]"
             />
             {g.name}
             {g.disabled ? <span className="text-xs">(su boletín ya salió)</span> : null}
@@ -628,24 +701,25 @@ function GroupPicker({ groups, error }: { groups: FormGroup[]; error?: string })
   );
 }
 
-const textareaClass = "xp-textarea";
-const inputClass = "xp-input";
-
 function Field({
   label,
   error,
   hidden,
+  htmlFor,
   children,
 }: {
   label: string;
   error?: string;
   hidden?: boolean;
+  htmlFor?: string;
   children: React.ReactNode;
 }) {
   if (hidden) return null;
   return (
     <div className="flex flex-col gap-1.5">
-      <label className="text-sm font-bold text-ink">{label}</label>
+      <label htmlFor={htmlFor} className="text-sm font-bold text-ink">
+        {label}
+      </label>
       {children}
       {error ? <p className="text-sm text-danger">{error}</p> : null}
     </div>

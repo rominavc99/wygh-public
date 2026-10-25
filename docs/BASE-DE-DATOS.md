@@ -103,6 +103,17 @@ erDiagram
     }
 ```
 
+### Misiones
+
+- **`Mission`**: catálogo; `text` lleva `{usuario}`. Una misión que ya se
+  usó no se borra, se desactiva (`active = false`).
+- **`MissionAssignment`**: una oferta a `userId` para `targetId`. `date`
+  es la fecha del resumen en que se entrega (y el "día" de los límites).
+  `status`: `OFFERED` → `ACCEPTED` → `COMPLETED` (con `resolutionText`,
+  `photoFilename` y `responseId`) o `FAILED`; también `REJECTED` y
+  `CANCELLED`. `swaps` cuenta los "Cambiar actividad".
+- **En `User`**: `missionStrikes`, `missionBanUntil` y `missionOptOut`.
+
 ### Grupos
 
 ```mermaid
@@ -350,10 +361,15 @@ erDiagram
 - **`Response` es única por `(userId, date)`**: volver a responder el
   mismo día actualiza la fila. `date` es un string `"YYYY-MM-DD"`, no un
   `DateTime`, para no lidiar con zonas horarias al comparar fechas.
-- **Los cuatro flujos del formulario** (llega a la hora normal, llega
-  tarde, no llega, se quedó en casa) comparten la tabla: `atHome`,
-  `arrivingLate` y `stayedHome` dicen cuál fue, y las reglas de qué campo
-  es obligatorio en cada uno viven en `src/lib/response-schema.ts`.
+- **Dos formatos en la misma tabla** (`format`): `DAY` es el resumen del
+  día (`didToday`, `wentWhere`, `bestPart`, `worstPart`, `tomorrowPlan`,
+  `mood`; `atHome` guarda "¿Te quedaste en tu casa?", `food` "¿Qué
+  comiste?" (`""` si no contestó) y `note` "Algo que quieras compartir").
+  `HOME` es el formato anterior, solo de consulta: sus cuatro flujos
+  (`atHome`, `arrivingLate`, `stayedHome`), `goingOut`, etc. En un `DAY`
+  esos campos quedan vacíos.
+- **`date` es la fecha del boletín**: en `DAY` el resumen habla del día
+  anterior (`describedDate()` en `src/lib/date.ts`).
 - **Foto de la respuesta**: el archivo vive en `data/uploads/respuestas/`
   (fuera de `public/`, ver `ARQUITECTURA.md`), pero `photoFilename` guarda
   el nombre lógico `IMG/respuestas/<archivo>`, que es la URL con la que

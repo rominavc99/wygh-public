@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
-import { parseResponseFormData } from "@/lib/response-schema";
+import { DAY_FORMAT_DEFAULTS, parseResponseFormData } from "@/lib/response-schema";
+import { prepareMissionDeliveries } from "@/lib/missions";
 import {
   photoFromFormData,
   validatePhoto,
@@ -31,7 +32,9 @@ export async function writeResponse(
   date: string,
   formData: FormData,
   existing: ExistingRow,
-  allowedGroupIds: string[]
+  allowedGroupIds: string[],
+  /** Entregar también las misiones aceptadas para `date` (solo el formulario diario). */
+  withMissions = false
 ): Promise<SaveResponseState> {
   const groupIds = selectedGroupIds(formData, allowedGroupIds);
   if (groupIds.length === 0) {
@@ -65,6 +68,11 @@ export async function writeResponse(
     return { status: "error", fieldErrors, message: "Revisa los campos marcados." };
   }
 
+  const missions = withMissions ? await prepareMissionDeliveries(userId, date, formData) : null;
+  if (missions && Object.keys(missions.fieldErrors).length) {
+    return { status: "error", fieldErrors: missions.fieldErrors, message: "Revisa los campos marcados." };
+  }
+
   if (newPhoto) {
     if (existing?.photoFilename) await deleteResponsePhotoAndHeroRow(existing.photoFilename);
     parsed.data.photoFilename = await saveResponsePhoto(userId, date, newPhoto);
@@ -88,10 +96,11 @@ export async function writeResponse(
 
   const saved = await prisma.response.upsert({
     where: { userId_date: { userId, date } },
-    create: { userId, date, ...parsed.data, phraseId },
-    update: { ...parsed.data, phraseId },
+    create: { userId, date, ...DAY_FORMAT_DEFAULTS, ...parsed.data, phraseId },
+    update: { ...DAY_FORMAT_DEFAULTS, ...parsed.data, phraseId },
   });
   await setResponseGroups(saved.id, groupIds, allowedGroupIds);
+  if (missions) await missions.apply(saved.id);
 
   return { status: "success" };
 }

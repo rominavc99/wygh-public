@@ -179,7 +179,7 @@ export async function sendDailyNewsletter(
       kind: "newsletter",
       title: `📰 Salió el boletín de ${group.name} del ${formatLocalDate(date)}`,
       url: `/boletines?date=${date}&grupo=${groupId}`,
-      text: `${content.responses.length} ${content.responses.length === 1 ? "respuesta" : "respuestas"}. Toca para leer lo que hará el grupo.`,
+      text: `${content.responses.length} ${content.responses.length === 1 ? "respuesta" : "respuestas"}. Toca para leer los resúmenes del grupo.`,
     },
   });
 

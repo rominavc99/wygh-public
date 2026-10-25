@@ -9,6 +9,7 @@ import { notifyAdminsOfScheduledResult } from "@/lib/notify-admins";
 import { sendWeeklySummary, sendInactivityNudges } from "@/lib/send-engagement";
 import { sendDailyExtras } from "@/lib/send-extras";
 import { pruneNotifications } from "@/lib/notifications";
+import { expireMissions } from "@/lib/missions";
 import { todayLocalDate, nowLocalTime, subtractMinutesFromTime } from "@/lib/date";
 
 // Cada grupo tiene su propia hora de envío (y su recordatorio 1 hora
@@ -131,6 +132,12 @@ async function checkAndSendExtras() {
   if (summary.length) console.log(`[worker] Correos especiales: ${summary.join(", ")}.`);
 }
 
+// Misiones cuyo resumen ya cerró sin entregarse: pasan a incumplidas.
+async function checkExpiredMissions() {
+  const { failed } = await expireMissions();
+  if (failed) console.log(`[worker] ${failed} misión(es) sin cumplir; se mandaron las advertencias.`);
+}
+
 // Notificaciones de más de un año: una vez al día, de madrugada.
 cron.schedule("30 3 * * *", () => {
   pruneNotifications()
@@ -161,6 +168,9 @@ cron.schedule("* * * * *", () => {
   });
   checkAndSendExtras().catch((error) => {
     console.error("[worker] Error al mandar correos especiales:", error);
+  });
+  checkExpiredMissions().catch((error) => {
+    console.error("[worker] Error al revisar misiones vencidas:", error);
   });
 });
 

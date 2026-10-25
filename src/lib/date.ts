@@ -97,6 +97,14 @@ export function addDaysLocal(date: string, days: number): string {
   return localDateOf(new Date(y, m - 1, d + days));
 }
 
+/**
+ * El día del que habla una respuesta: en "Resumen del día" (DAY) es el día
+ * anterior al boletín en el que sale; en el formato de antes (HOME), el mismo.
+ */
+export function describedDate(response: { date: string; format: string }): string {
+  return response.format === "DAY" ? addDaysLocal(response.date, -1) : response.date;
+}
+
 /** Día de la semana de `date` ("YYYY-MM-DD"), como Date.getDay(): 0 = domingo. */
 export function weekdayOf(date: string): number {
   const [y, m, d] = date.split("-").map(Number);

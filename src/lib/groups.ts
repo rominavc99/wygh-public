@@ -5,6 +5,7 @@ import { displayName } from "@/lib/display-name";
 import { fromAddress, sendOne } from "@/lib/send-engagement";
 import { recordNotification } from "@/lib/notifications";
 import { groupInviteEmail } from "@/lib/group-email";
+import { addDaysLocal, nowLocalTime, todayLocalDate } from "@/lib/date";
 
 // Grupos (ver el modelo Group en prisma/schema.prisma). Cada grupo tiene su
 // propio boletín y está aislado de los demás; una persona puede estar en
@@ -127,6 +128,24 @@ export async function sendGroupInvites(
     }
   }
   return { total: users.length, sent };
+}
+
+/**
+ * Fecha de boletín (Response.date) a la que va lo que `userId` responda
+ * ahora. El resumen de un día se escribe desde que sale el boletín de ese
+ * día hasta que sale el siguiente: mientras alguno de sus grupos tenga
+ * pendiente el de hoy (sin enviar y sin haber pasado su hora) es el de hoy,
+ * que habla de ayer; si no, el de mañana, que habla de hoy.
+ */
+export async function openResponseDate(userId: string): Promise<string> {
+  const today = todayLocalDate();
+  const now = nowLocalTime();
+  const groups = await prisma.group.findMany({
+    where: { suspended: false, members: { some: { userId } } },
+    select: { sendTime: true, sends: { where: { date: today }, select: { id: true } } },
+  });
+  const pendingToday = groups.some((g) => g.sends.length === 0 && now < g.sendTime);
+  return pendingToday ? today : addDaysLocal(today, 1);
 }
 
 export type ResponseGroupOption = {

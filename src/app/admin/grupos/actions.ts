@@ -8,6 +8,8 @@ import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/auth-guards";
 import { newInviteToken, sendGroupInvites } from "@/lib/groups";
 
+const DAY_GREETING = "Hola, {nombre}, esto es lo que hicieron tus amigos ayer:";
+
 export type GroupFormState =
   | { status: "idle" }
   | { status: "success"; message?: string }
@@ -32,7 +34,8 @@ export async function createGroup(_prev: GroupFormState, formData: FormData): Pr
 
   let id: string;
   try {
-    id = (await prisma.group.create({ data: { name: parsed.data } })).id;
+    // El default de la tabla es el saludo del formato anterior ("¿Qué harás al llegar?").
+    id = (await prisma.group.create({ data: { name: parsed.data, greetingTemplate: DAY_GREETING } })).id;
   } catch (error) {
     if (isUniqueNameError(error)) return { status: "error", message: "Ya existe un grupo con ese nombre." };
     throw error;

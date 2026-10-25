@@ -3,17 +3,20 @@ import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { markSeen } from "@/lib/last-seen";
 import { prisma } from "@/lib/prisma";
-import { resolveNewsletterHero, getSentHero, capitalize, type NewsletterHero } from "@/lib/newsletter";
+import { resolveNewsletterHero, getSentHero, capitalize, missionsForNewsletter, type NewsletterHero } from "@/lib/newsletter";
 import { parseMomentsSnapshot, topMoments } from "@/lib/birthday-newsletter";
 import { displayName } from "@/lib/display-name";
-import { todayLocalDate, formatLocalDate } from "@/lib/date";
-import { ResponseCard } from "./response-card";
+import { addDaysLocal, todayLocalDate, formatLocalDate } from "@/lib/date";
+import { ResponseCard, toCommentSummaries } from "./response-card";
+import { ReactionBar } from "./reaction-bar";
+import { CommentThread } from "./comment-thread";
+import { summarizeReactions } from "@/lib/reactions";
 import { ZoomableImage } from "./photo-lightbox";
 
 export default async function BoletinesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ date?: string; cumple?: string; grupo?: string }>;
+  searchParams: Promise<{ date?: string; cumple?: string; grupo?: string; archivo?: string }>;
 }) {
   const session = await auth();
   if (!session?.user) redirect("/login");
@@ -32,11 +35,16 @@ export default async function BoletinesPage({
   const group = groups.find((g) => g.id === params.grupo) ?? groups[0] ?? null;
   if (!group) {
     return (
-      <BoletinesShell entries={[]} date="" cumple={null} groups={[]} groupId={null}>
+      <BoletinesShell entries={[]} date="" cumple={null} groups={[]} groupId={null} legacy={false} hasLegacy={false}>
         {null}
       </BoletinesShell>
     );
   }
+
+  // El primer resumen del día marca el corte: lo de antes es el formato
+  // anterior ("¿Qué harás al llegar?") y va en su propia pestaña.
+  const firstDay = await prisma.response.findFirst({ where: { format: "DAY" }, orderBy: { date: "asc" }, select: { date: true } });
+  const isLegacyDate = (d: string) => !firstDay || d < firstDay.date;
 
   // Los boletines archivados no deben verse acá — ni en el selector ni
   // entrando directo con su fecha por la URL.
@@ -78,17 +86,21 @@ export default async function BoletinesPage({
   // Diarios y de cumpleaños en una sola lista, del más reciente al más
   // viejo. El mismo día, el diario (sale en la tarde) va antes que el de
   // cumpleaños (sale en la mañana).
-  const entries = [
+  const allEntries = [
     ...sentDates.map((s) => ({ date: s.date, cumple: null as string | null, celebrant: null as string | null })),
     ...birthdayEditions.map((e) => ({ date: e.date, cumple: e.userId, celebrant: displayName(e.user) })),
   ].sort((a, b) => b.date.localeCompare(a.date) || Number(Boolean(a.cumple)) - Number(Boolean(b.cumple)));
+  const hasLegacy = allEntries.some((e) => isLegacyDate(e.date));
+  // Sin ningún resumen todavía, se abre directo el archivo anterior.
+  const legacy = params.archivo === "anterior" || (params.date ? isLegacyDate(params.date) : !allEntries.some((e) => !isLegacyDate(e.date)));
+  const entries = allEntries.filter((e) => isLegacyDate(e.date) === legacy);
 
   const selected = params.date || params.cumple ? null : entries[0] ?? null;
   const date = params.date || selected?.date || todayLocalDate();
   const cumple = params.cumple || selected?.cumple || null;
   const isArchived = !cumple && archivedDates.has(date);
 
-  const shell = { entries, date, groups: groups.map((g) => ({ id: g.id, name: g.name })), groupId: group.id };
+  const shell = { entries, date, groups: groups.map((g) => ({ id: g.id, name: g.name })), groupId: group.id, legacy, hasLegacy };
 
   if (cumple) {
     return (
@@ -99,8 +111,8 @@ export default async function BoletinesPage({
   }
 
   const mentionable = await mentionableUsers(group.id);
-  const [responses, send] = isArchived
-    ? [[], null]
+  const [responses, send, missions] = isArchived
+    ? [[], null, []]
     : await Promise.all([
         prisma.response.findMany({
           where: { date, groups: { some: { groupId: group.id } } },
@@ -108,7 +120,7 @@ export default async function BoletinesPage({
             user: true,
             reactions: { where: { groupId: group.id }, include: { user: true } },
             comments: {
-              where: { groupId: group.id },
+              where: { groupId: group.id, missionId: null },
               include: { user: true, reactions: { include: { user: true } }, mentions: { include: { user: true } } },
               orderBy: { createdAt: "asc" },
             },
@@ -119,7 +131,24 @@ export default async function BoletinesPage({
           where: { groupId_date: { groupId: group.id, date } },
           select: { heroJson: true, contentHtml: true, contentText: true },
         }),
+        missionsForNewsletter(group.id, date),
       ]);
+
+  // Reacciones y comentarios de las misiones cumplidas, en este grupo.
+  const missionInteractions = missions.length
+    ? await prisma.missionAssignment.findMany({
+        where: { id: { in: missions.map((m) => m.id) } },
+        select: {
+          id: true,
+          reactions: { where: { groupId: group.id }, include: { user: true } },
+          comments: {
+            where: { groupId: group.id },
+            include: { user: true, reactions: { include: { user: true } }, mentions: { include: { user: true } } },
+            orderBy: { createdAt: "asc" },
+          },
+        },
+      })
+    : [];
 
   // La portada (título/párrafo/foto/frase) de un día ya enviado sale del
   // snapshot guardado en el envío, igual que el correo real — si se
@@ -138,11 +167,30 @@ export default async function BoletinesPage({
         <p className="p-6 text-center text-sm text-ink-soft">Este boletín fue archivado por el admin. 📦</p>
       ) : (
         <div className="mx-auto flex max-w-2xl flex-col gap-5">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-wide text-ink-faint">{formatLocalDate(date)}</p>
-          </div>
+          <EditionNav entries={entries} date={date} groupId={group.id} legacy={legacy} />
+
+          {/* Atajos para no tener que bajar todo el boletín: se quedan a la vista al hacer scroll. */}
+          {missions.length ? (
+            <nav
+              aria-label="Ir a una sección del boletín"
+              className="sticky top-2 z-20 grid grid-cols-2 gap-2 rounded-2xl border-[2.5px] border-[var(--nb-line)] bg-panel p-1.5 shadow-[3px_3px_0_0_var(--nb-line)]"
+            >
+              <a href="#respuestas" className="chip chip-blue min-h-10 justify-center no-underline">
+                Respuestas · {responses.length}
+              </a>
+              <a href="#misiones" className="chip min-h-10 justify-center bg-accent-pink-2 text-white no-underline">
+                Misiones · {missions.length}
+              </a>
+            </nav>
+          ) : null}
 
           {hero?.enabled && hero.title.trim() ? <HeroCard hero={hero} /> : null}
+
+          {missions.length ? <MissionIndex missions={missions} /> : null}
+
+          <p id="respuestas" className="scroll-mt-20 text-xs font-bold uppercase tracking-wide text-accent-pink-2">
+            {responses.length} {legacy ? (responses.length === 1 ? "respuesta" : "respuestas") : responses.length === 1 ? "resumen" : "resúmenes"}
+          </p>
 
           {responses.length > 0 ? (
             <ul className="flex flex-col gap-4">
@@ -153,12 +201,23 @@ export default async function BoletinesPage({
                   groupId={group.id}
                   currentUserId={session.user.id}
                   mentionable={mentionable}
+                  compact={responses.length > 3}
                 />
               ))}
             </ul>
           ) : (
-            <p className="text-sm text-ink-soft">Nadie respondió ese día. 🦆</p>
+            <p className="text-sm text-ink-soft">{legacy ? "Nadie respondió ese día. 🦆" : "Nadie mandó su resumen ese día. 🦆"}</p>
           )}
+
+          {missions.length ? (
+            <MissionList
+              missions={missions}
+              interactions={missionInteractions}
+              groupId={group.id}
+              currentUserId={session.user.id}
+              mentionable={mentionable}
+            />
+          ) : null}
         </div>
       )}
     </BoletinesShell>
@@ -166,6 +225,141 @@ export default async function BoletinesPage({
 }
 
 type Entry = { date: string; cumple: string | null; celebrant: string | null };
+type MissionRow = Awaited<ReturnType<typeof missionsForNewsletter>>[number];
+
+function editionHref(e: Entry, groupId: string): string {
+  return e.cumple ? `/boletines?date=${e.date}&cumple=${e.cumple}&grupo=${groupId}` : `/boletines?date=${e.date}&grupo=${groupId}`;
+}
+
+/** Título del boletín diario con flechas al anterior y al siguiente. */
+function EditionNav({ entries, date, groupId, legacy }: { entries: Entry[]; date: string; groupId: string; legacy: boolean }) {
+  const daily = entries.filter((e) => !e.cumple);
+  const index = daily.findIndex((e) => e.date === date);
+  const newer = index > 0 ? daily[index - 1] : null;
+  const older = index >= 0 && index < daily.length - 1 ? daily[index + 1] : null;
+  const arrow = (e: Entry | null, label: string, glyph: string) =>
+    e ? (
+      <Link href={editionHref(e, groupId)} aria-label={label} className="chip chip-blue min-h-10 min-w-10 justify-center no-underline">
+        {glyph}
+      </Link>
+    ) : (
+      <span aria-hidden="true" className="min-w-10" />
+    );
+  return (
+    <div className="flex items-center gap-2">
+      {arrow(older, "Boletín anterior", "‹")}
+      <div className="flex-1 text-center">
+        {legacy ? (
+          <h2 className="font-display text-lg font-bold capitalize text-ink">{formatLocalDate(date)}</h2>
+        ) : (
+          <>
+            <p className="text-xs font-bold text-ink-faint">Boletín del {formatLocalDate(date)}</p>
+            <h2 className="font-display text-lg font-bold text-ink">Resumen del {formatLocalDate(addDaysLocal(date, -1))}</h2>
+          </>
+        )}
+      </div>
+      {arrow(newer, "Boletín siguiente", "›")}
+    </div>
+  );
+}
+
+function missionLine(m: MissionRow): string {
+  return m.mission.text.replaceAll("{usuario}", displayName(m.target));
+}
+
+/** Índice compacto de las misiones cumplidas, arriba de las respuestas. */
+function MissionIndex({ missions }: { missions: MissionRow[] }) {
+  return (
+    <section className="win" aria-labelledby="misiones-rapidas">
+      <div className="win-titlebar" style={{ backgroundImage: "linear-gradient(180deg, #ff8fc2 0%, var(--accent-pink-2) 70%)" }}>
+        <span className="win-icon">🎯</span>
+        <h3 id="misiones-rapidas" className="win-title">
+          Misiones cumplidas
+        </h3>
+        <a href="#misiones" className="text-xs font-bold text-white underline">
+          Ver detalle
+        </a>
+      </div>
+      <ul>
+        {missions.map((m, i) => (
+          <li key={m.id} className={i ? "border-t-2 border-panel-edge" : ""}>
+            <a href={`#mision-${m.id}`} className="flex min-h-11 items-center gap-3 px-4 py-2.5 text-sm text-ink no-underline hover:bg-panel-2">
+              <span className="min-w-0 flex-1">
+                <strong>
+                  {displayName(m.user)} → {displayName(m.target)}
+                </strong>
+                <span className="block truncate text-ink-soft">{missionLine(m)}</span>
+              </span>
+              {m.photoFilename ? <span className="chip chip-neutral text-[11px]">foto</span> : null}
+              <span aria-hidden="true" className="font-bold text-chrome-4">
+                ›
+              </span>
+            </a>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+type MissionInteractions = {
+  id: string;
+  reactions: Parameters<typeof summarizeReactions>[0];
+  comments: Parameters<typeof toCommentSummaries>[0];
+};
+
+/** Detalle de las misiones cumplidas, al final del boletín, con sus reacciones y comentarios. */
+function MissionList({
+  missions,
+  interactions,
+  groupId,
+  currentUserId,
+  mentionable,
+}: {
+  missions: MissionRow[];
+  interactions: MissionInteractions[];
+  groupId: string;
+  currentUserId: string;
+  mentionable: { id: string; name: string }[];
+}) {
+  return (
+    <section id="misiones" className="flex scroll-mt-20 flex-col gap-3">
+      <h3 className="text-xs font-bold uppercase tracking-wide text-accent-pink-2" style={{ fontFamily: "var(--font-varela), sans-serif" }}>🎯 Misiones cumplidas · {missions.length}</h3>
+      {missions.map((m) => (
+        <article id={`mision-${m.id}`} key={m.id} className="mission-card scroll-mt-20 flex flex-col gap-2 bg-white">
+          <p className="text-sm font-bold text-ink-soft">
+            <span className="font-display text-accent-pink-2">{displayName(m.user)}</span> para{" "}
+            <span className="font-display text-accent-pink-2">{displayName(m.target)}</span>
+          </p>
+          <p className="text-sm font-bold text-ink">{missionLine(m)}</p>
+          <p className="whitespace-pre-line text-sm leading-relaxed text-ink">{m.resolutionText}</p>
+          {m.photoFilename ? (
+            <ZoomableImage
+              src={`/${m.photoFilename}`}
+              alt=""
+              caption={missionLine(m)}
+              className="h-32 w-32 rounded-lg border border-panel-edge object-cover"
+            />
+          ) : null}
+          <ReactionBar
+            target={{ type: "mission", id: m.id, groupId }}
+            reactions={summarizeReactions(interactions.find((i) => i.id === m.id)?.reactions ?? [], currentUserId)}
+          />
+          {m.responseId ? (
+            <CommentThread
+              responseId={m.responseId}
+              groupId={groupId}
+              missionId={m.id}
+              comments={toCommentSummaries(interactions.find((i) => i.id === m.id)?.comments ?? [], currentUserId)}
+              currentUserId={currentUserId}
+              mentionable={mentionable}
+            />
+          ) : null}
+        </article>
+      ))}
+    </section>
+  );
+}
 
 function BoletinesShell({
   entries,
@@ -173,6 +367,8 @@ function BoletinesShell({
   cumple,
   groups,
   groupId,
+  legacy,
+  hasLegacy,
   children,
 }: {
   entries: Entry[];
@@ -180,9 +376,11 @@ function BoletinesShell({
   cumple: string | null;
   groups: { id: string; name: string }[];
   groupId: string | null;
+  /** Se está viendo el archivo del formato anterior. */
+  legacy: boolean;
+  hasLegacy: boolean;
   children: React.ReactNode;
 }) {
-  const groupParam = groupId ? `&grupo=${groupId}` : "";
   return (
     <main className="relative z-10 flex flex-1 justify-center px-4 py-10">
       <div className="w-full max-w-5xl">
@@ -195,9 +393,6 @@ function BoletinesShell({
               📬 Boletines
             </h1>
           </div>
-          <Link href="/" className="chip chip-blue">
-            ← Volver al formulario
-          </Link>
         </div>
 
         {groups.length > 1 ? (
@@ -215,11 +410,32 @@ function BoletinesShell({
           </nav>
         ) : null}
 
+        {hasLegacy && groupId ? (
+          <nav className="mb-4 grid grid-cols-2 overflow-hidden rounded-xl border-[2.5px] border-[var(--nb-line)] bg-white shadow-[3px_3px_0_0_var(--nb-line)]" aria-label="Tipo de boletín">
+            <Link
+              href={`/boletines?grupo=${groupId}`}
+              aria-current={!legacy ? "page" : undefined}
+              className={`min-h-11 px-2 py-2.5 text-center text-sm font-bold no-underline ${!legacy ? "bg-chrome-3 text-white" : "text-ink-soft"}`}
+            >
+              Resúmenes del día
+            </Link>
+            <Link
+              href={`/boletines?grupo=${groupId}&archivo=anterior`}
+              aria-current={legacy ? "page" : undefined}
+              className={`min-h-11 border-l-[2.5px] border-[var(--nb-line)] px-2 py-2.5 text-center text-sm font-bold no-underline ${legacy ? "bg-chrome-3 text-white" : "text-ink-soft"}`}
+            >
+              Al llegar a casa (anterior)
+            </Link>
+          </nav>
+        ) : null}
+
         {entries.length === 0 ? (
           <div className="win">
             <div className="win-body">
               <p className="text-sm text-ink-soft">
-                {groupId
+                {groupId && !legacy && hasLegacy
+                  ? "Todavía no sale el primer resumen del día. Mientras, puedes ver el archivo anterior. 🦆"
+                  : groupId
                   ? "Todavía no se ha enviado ningún boletín en este grupo. 🦆"
                   : "Todavía no estás en ningún grupo, así que no hay boletines que mostrar. 🦆"}
               </p>
@@ -236,6 +452,7 @@ function BoletinesShell({
 
                 <form className="flex items-end gap-2 border-b border-panel-edge p-3">
                   {groupId ? <input type="hidden" name="grupo" value={groupId} /> : null}
+                  {legacy ? <input type="hidden" name="archivo" value="anterior" /> : null}
                   <div className="flex flex-1 flex-col gap-1">
                     <label className="text-xs font-bold text-ink-soft">Ir a una fecha</label>
                     <input type="date" name="date" defaultValue={date} className="xp-input text-sm" />
@@ -248,9 +465,7 @@ function BoletinesShell({
                 <ul className="flex overflow-x-auto md:block md:max-h-[680px] md:overflow-x-visible md:overflow-y-auto">
                   {entries.map((e) => {
                     const active = e.date === date && e.cumple === cumple;
-                    const href = e.cumple
-                      ? `/boletines?date=${e.date}&cumple=${e.cumple}${groupParam}`
-                      : `/boletines?date=${e.date}${groupParam}`;
+                    const href = groupId ? editionHref(e, groupId) : `/boletines?date=${e.date}`;
                     return (
                       <li key={`${e.date}-${e.cumple ?? "diario"}`} className="flex-none md:flex-auto">
                         <Link
@@ -350,7 +565,7 @@ async function BirthdayEditionView({
       user: true,
       reactions: { where: { groupId }, include: { user: true } },
       comments: {
-        where: { groupId },
+        where: { groupId, missionId: null },
         include: { user: true, reactions: { include: { user: true } }, mentions: { include: { user: true } } },
         orderBy: { createdAt: "asc" },
       },

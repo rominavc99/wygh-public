@@ -5,7 +5,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth-guards";
 import { rateLimit } from "@/lib/rate-limit";
-import { notifyResponseInteraction, notifyCommentReaction, notifyNewComment } from "@/lib/notify-interaction";
+import { notifyResponseInteraction, notifyCommentReaction, notifyMissionReaction, notifyNewComment } from "@/lib/notify-interaction";
 import { displayName } from "@/lib/display-name";
 import {
   photoFromFormData,
@@ -41,6 +41,45 @@ export async function toggleReaction(responseId: string, groupId: string, emoji:
     // Sin await a propósito: el envío del correo no debe retrasar el toggle
     // que el usuario está esperando ver reflejado de inmediato en la UI.
     void notifyResponseInteraction({ responseId, groupId, actorId: user.id, message: `reaccionó ${trimmed} a tu respuesta` });
+  }
+
+  revalidatePath("/boletines");
+}
+
+/**
+ * La misión cumplida `missionId`, si se puede interactuar con ella en
+ * `groupId`: se entregó en un resumen mandado a ese grupo (y hay acceso) y
+ * su persona es del grupo (solo así sale en ese boletín).
+ */
+async function interactableMission(user: { id: string; role: string }, missionId: string, groupId: string) {
+  const mission = await prisma.missionAssignment.findUnique({
+    where: { id: missionId },
+    select: { id: true, responseId: true, status: true, target: { select: { groupMemberships: { where: { groupId }, select: { groupId: true } } } } },
+  });
+  if (!mission?.responseId || mission.status !== "COMPLETED" || mission.target.groupMemberships.length === 0) return null;
+  if (!(await canInteractInGroup(user, mission.responseId, groupId))) return null;
+  return { id: mission.id, responseId: mission.responseId };
+}
+
+/** Igual que toggleReaction, pero sobre una misión cumplida. Avisa a quien la cumplió. */
+export async function toggleMissionReaction(missionId: string, groupId: string, emoji: string, kind: "emoji" | "ascii") {
+  const user = await requireUser();
+
+  if (!rateLimit(`reaction:${user.id}`, 60, 60 * 1000)) return;
+
+  const trimmed = emoji.trim();
+  if (!trimmed || trimmed.length > 40) return;
+  if (!(await interactableMission(user, missionId, groupId))) return;
+
+  const existing = await prisma.missionReaction.findUnique({
+    where: { missionId_groupId_userId_emoji: { missionId, groupId, userId: user.id, emoji: trimmed } },
+  });
+
+  if (existing) {
+    await prisma.missionReaction.delete({ where: { id: existing.id } });
+  } else {
+    await prisma.missionReaction.create({ data: { missionId, groupId, userId: user.id, emoji: trimmed, kind } });
+    void notifyMissionReaction({ missionId, groupId, actorId: user.id, emoji: trimmed });
   }
 
   revalidatePath("/boletines");
@@ -126,9 +165,11 @@ async function parseCommentForm(
   return { ok: true, text, photo, removePhoto, mentioned };
 }
 
+/** Comenta una respuesta, o una misión cumplida si viene `missionId` (su hilo es aparte). */
 export async function addComment(
   responseId: string,
   groupId: string,
+  missionId: string | null,
   _prevState: AddCommentState,
   formData: FormData
 ): Promise<AddCommentState> {
@@ -139,6 +180,9 @@ export async function addComment(
   }
   if (!(await canInteractInGroup(user, responseId, groupId))) {
     return { status: "error", message: "No puedes comentar en este grupo." };
+  }
+  if (missionId && (await interactableMission(user, missionId, groupId))?.responseId !== responseId) {
+    return { status: "error", message: "No puedes comentar esta misión." };
   }
 
   const form = await parseCommentForm(formData, { hasPhotoAlready: false, groupId });
@@ -153,9 +197,9 @@ export async function addComment(
   if (replyToId) {
     const target = await prisma.comment.findUnique({
       where: { id: replyToId },
-      select: { responseId: true, groupId: true, parentId: true, userId: true },
+      select: { responseId: true, groupId: true, parentId: true, userId: true, missionId: true },
     });
-    if (!target || target.responseId !== responseId || target.groupId !== groupId) {
+    if (!target || target.responseId !== responseId || target.groupId !== groupId || target.missionId !== missionId) {
       return { status: "error", message: "Ese comentario ya no existe." };
     }
     parentId = target.parentId ?? replyToId;
@@ -172,6 +216,7 @@ export async function addComment(
       text: form.text,
       photoFilename,
       parentId,
+      missionId,
       mentions: { create: form.mentioned.map((u) => ({ userId: u.id })) },
     },
   });

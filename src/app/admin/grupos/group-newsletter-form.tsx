@@ -40,7 +40,7 @@ export function GroupNewsletterForm({
       <Field
         label="Saludo del boletín"
         error={fieldErrors.greetingTemplate}
-        hint='Usa {nombre} donde quieras que aparezca el nombre de cada persona. Ej: "Hola, {nombre}, esto es lo que estarán haciendo tus amigos el día de hoy:"'
+        hint='Usa {nombre} donde quieras que aparezca el nombre de cada persona. Ej: "Hola, {nombre}, esto es lo que hicieron tus amigos ayer:"'
       >
         <textarea name="greetingTemplate" defaultValue={group.greetingTemplate} className="xp-textarea" rows={2} required />
       </Field>

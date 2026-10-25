@@ -6,6 +6,7 @@ import { getParticipationStats } from "@/lib/participation-stats";
 import { embedResponsePhotosAsAttachments } from "@/lib/send-newsletter";
 import { fromAddress, sendOne } from "@/lib/send-engagement";
 import { recordNotification } from "@/lib/notifications";
+import { responseFields } from "@/lib/newsletter";
 import {
   anniversaryEmail,
   onThisDayEmail,
@@ -85,19 +86,7 @@ export async function onThisDayParts(responseId: string): Promise<EmailParts> {
     name: displayName(r.user),
     date: r.date,
     response: {
-      atHome: r.atHome,
-      arrivingLate: r.arrivingLate,
-      beforeHomePlan: r.beforeHomePlan,
-      stayedHome: r.stayedHome,
-      homePlan: r.homePlan,
-      awayPlan: r.awayPlan,
-      tonightPlan: r.tonightPlan,
-      food: r.food,
-      goingOut: r.goingOut,
-      goingOutWhere: r.goingOutWhere,
-      note: r.note,
-      photoUrl: r.photoFilename ? `${getSiteUrl()}/${r.photoFilename}` : null,
-      photoDescription: r.photoDescription,
+      ...responseFields(r),
     },
     reactions: r._count.reactions,
     comments: r._count.comments,

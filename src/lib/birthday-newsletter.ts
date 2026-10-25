@@ -10,6 +10,7 @@ import {
   renderHero,
   responseDetailsHtml,
   responseDetailsText,
+  responseFields,
   capitalize,
   type NewsletterHero,
   type NewsletterResponse,
@@ -147,7 +148,7 @@ export async function topMoments(userId: string, groupId: string, date: string):
     where: { userId, date: { gte: oneYearBefore(date), lt: date }, groups: { some: { groupId } } },
     include: {
       reactions: { where: { groupId } },
-      comments: { where: { groupId }, include: { user: true }, orderBy: { createdAt: "asc" } },
+      comments: { where: { groupId, missionId: null }, include: { user: true }, orderBy: { createdAt: "asc" } },
     },
   });
 
@@ -162,19 +163,7 @@ export async function topMoments(userId: string, groupId: string, date: string):
       return {
         responseId: r.id,
         date: r.date,
-        atHome: r.atHome,
-        arrivingLate: r.arrivingLate,
-        beforeHomePlan: r.beforeHomePlan,
-        stayedHome: r.stayedHome,
-        homePlan: r.homePlan,
-        awayPlan: r.awayPlan,
-        tonightPlan: r.tonightPlan,
-        food: r.food,
-        goingOut: r.goingOut,
-        goingOutWhere: r.goingOutWhere,
-        note: r.note,
-        photoUrl: r.photoFilename ? `${getSiteUrl()}/${r.photoFilename}` : null,
-        photoDescription: r.photoDescription,
+        ...responseFields(r),
         reactions: [...counts].map(([emoji, count]) => ({ emoji, count })).sort((a, b) => b.count - a.count),
         comments: r.comments.map((c) => ({ authorName: displayName(c.user), text: c.text || (c.photoFilename ? "📷 (foto)" : "") })),
       };

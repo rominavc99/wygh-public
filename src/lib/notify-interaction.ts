@@ -37,6 +37,30 @@ export async function notifyResponseInteraction({
   }
 }
 
+/** Avisa a quien cumplió una misión que alguien reaccionó a ella. Best-effort, igual que arriba. */
+export async function notifyMissionReaction({
+  missionId,
+  groupId,
+  actorId,
+  emoji,
+}: {
+  missionId: string;
+  groupId: string;
+  actorId: string;
+  emoji: string;
+}): Promise<void> {
+  try {
+    const mission = await prisma.missionAssignment.findUnique({
+      where: { id: missionId },
+      select: { user: true, response: { select: { date: true } } },
+    });
+    if (!mission?.response) return;
+    await notifyUser({ recipient: mission.user, date: mission.response.date, groupId, actorId, message: `reaccionó ${emoji} a tu misión` });
+  } catch (error) {
+    console.error("No se pudo enviar la notificación de interacción:", error);
+  }
+}
+
 /** Avisa a quien escribió un comentario que alguien reaccionó a él. Best-effort, igual que arriba. */
 export async function notifyCommentReaction({
   commentId,
@@ -136,14 +160,22 @@ export async function notifyNewComment({
   try {
     const comment = await prisma.comment.findUnique({
       where: { id: commentId },
-      select: { text: true, photoFilename: true, groupId: true, response: { select: { date: true, userId: true } } },
+      select: {
+        text: true,
+        photoFilename: true,
+        groupId: true,
+        missionId: true,
+        response: { select: { date: true, userId: true } },
+      },
     });
     if (!comment) return;
 
     const messages = new Map<string, string>();
     if (replyToUserId) messages.set(replyToUserId, "respondió a tu comentario");
     for (const id of mentionedIds) if (!messages.has(id)) messages.set(id, "te etiquetó en un comentario");
-    if (!onlyMentions && !messages.has(comment.response.userId)) messages.set(comment.response.userId, "comentó tu respuesta");
+    // En una misión, la respuesta es de quien la cumplió: se le avisa igual.
+    const ownerMessage = comment.missionId ? "comentó tu misión" : "comentó tu respuesta";
+    if (!onlyMentions && !messages.has(comment.response.userId)) messages.set(comment.response.userId, ownerMessage);
     messages.delete(actorId);
 
     // Un comentario puede ser solo una foto (sin texto).
